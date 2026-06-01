@@ -1,0 +1,25 @@
+[Unit]
+Description=jmail agent (SpamAssassin / IMAPSieve management on the mail host)
+Documentation=https://github.com/your-org/jmail
+After=network-online.target spamassassin.service dovecot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Low-privilege account; grant only the specific sudo rules it needs
+# (sa-learn, spamassassin --lint, reload spamassassin) via /etc/sudoers.d/jmail-agent.
+User=jmail-agent
+Group=jmail-agent
+WorkingDirectory=/opt/jmail/apps/agent
+EnvironmentFile=/etc/jmail/agent.env
+ExecStart=/usr/bin/node /opt/jmail/apps/agent/dist/index.js
+Restart=on-failure
+RestartSec=2
+
+# Hardening
+NoNewPrivileges=false
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

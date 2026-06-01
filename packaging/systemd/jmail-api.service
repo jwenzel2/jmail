@@ -1,0 +1,28 @@
+[Unit]
+Description=jmail API (webmail backend / BFF)
+Documentation=https://github.com/your-org/jmail
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jmail
+Group=jmail
+WorkingDirectory=/opt/jmail/apps/api
+# Environment is read from this file (see .env.example for keys).
+EnvironmentFile=/etc/jmail/api.env
+ExecStart=/usr/bin/node /opt/jmail/apps/api/dist/index.js
+Restart=on-failure
+RestartSec=2
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+{
+  "name": "jmail",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Roundcube-style webmail client fronting an existing Dovecot/Postfix/SpamAssassin stack",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "migrate": "pnpm --filter @jmail/api migrate",
+    "migrate:create": "pnpm --filter @jmail/api migrate:create"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "globals": "^17.6.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.19.1"
+  }
+}

@@ -1,0 +1,40 @@
+# jmail — Dovecot OAuth2 backend configuration.
+# Referenced by 10-auth-oauth2.conf.ext. Validates the OAuth access token that
+# jmail presents over XOAUTH2/OAUTHBEARER.
+#
+# RECOMMENDED for Keycloak: LOCAL JWT validation. Keycloak issues JWT access
+# tokens, so Dovecot can verify the signature locally against the realm's public
+# keys and read claims directly — no per-login HTTP round-trip, and it avoids the
+# Dovecot 2.3 "No username returned" behaviour seen with userinfo introspection.
+
+introspection_mode = local
+
+# Public keys, looked up by the dict key `shared/<azp>/<alg>/<kid>`.
+# NOTE: the fs:posix dict STRIPS the leading `shared/` namespace, so the PEM
+# (SubjectPublicKeyInfo) for each signing key must live at:
+#     <prefix>/<azp>/<alg>/<kid>
+# e.g. /etc/dovecot/oauth2-keys/jmail/RS256/<kid>   (azp = the client id)
+# Refresh these whenever the provider rotates signing keys (see the realm's
+# JWKS at <issuer>/protocol/openid-connect/certs).
+local_validation_key_dict = fs:posix:prefix=/etc/dovecot/oauth2-keys/
+
+# The token claim Dovecot uses as the mailbox username (must match how your
+# mailboxes are keyed; here, the user's email address).
+username_attribute = email
+username_format = %Lu
+
+# Reject tokens not issued by your realm.
+issuers = https://AUTH_HOST/realms/jmail
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ALTERNATIVE: remote token introspection (RFC 7662). Works with providers that
+# don't issue JWTs. With Keycloak prefer local validation above.
+#
+# introspection_url = https://AUTH_HOST/realms/jmail/protocol/openid-connect/token/introspect
+# introspection_mode = post
+# client_id = jmail
+# client_secret = CHANGEME
+# username_attribute = email
+# active_attribute = active
+# active_value = true
+# tls_ca_cert_file = /etc/ssl/certs/ca-certificates.crt

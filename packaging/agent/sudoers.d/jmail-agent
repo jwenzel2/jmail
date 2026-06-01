@@ -1,0 +1,12 @@
+# Least-privilege sudo rules for the jmail-agent service account.
+# Install as /etc/sudoers.d/jmail-agent (chmod 0440, validate with visudo -c).
+#
+# Lets the agent read/learn Bayes, lint configs, and reload SpamAssassin —
+# nothing else. Adjust paths to match your distribution.
+
+Cmnd_Alias JMAIL_SA = /usr/bin/sa-learn, \
+                      /usr/bin/spamassassin --lint, \
+                      /usr/bin/systemctl reload spamassassin, \
+                      /usr/bin/systemctl reload spamd
+
+jmail-agent ALL=(root) NOPASSWD: JMAIL_SA

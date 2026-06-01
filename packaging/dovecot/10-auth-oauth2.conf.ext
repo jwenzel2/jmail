@@ -1,0 +1,27 @@
+# jmail — enable XOAUTH2 / OAUTHBEARER auth in Dovecot.
+# Include this from your dovecot.conf (or drop into conf.d/) and reload Dovecot.
+#
+#   !include conf.d/10-auth-oauth2.conf.ext
+#
+# This lets jmail authenticate IMAP (and, via Dovecot SASL, Postfix submission)
+# using the same OAuth access token issued by your OIDC provider — no password.
+
+# Add the token mechanisms alongside whatever you already use.
+auth_mechanisms = $auth_mechanisms xoauth2 oauthbearer
+
+passdb {
+  driver = oauth2
+  mechanisms = xoauth2 oauthbearer
+  args = /etc/dovecot/dovecot-oauth2.conf.ext
+}
+
+# A userdb is still required to locate each mailbox. Use whatever you already
+# have (sql/ldap/passwd-file); a static example keyed by the token username:
+#
+# userdb {
+#   driver = static
+#   args = uid=vmail gid=vmail home=/var/mail/vhosts/%d/%n
+# }
+#
+# Postfix submission: point smtpd_sasl_type=dovecot at this Dovecot auth socket
+# so the same XOAUTH2 token authenticates sending.
