@@ -7,14 +7,17 @@ function Row({
   msg,
   selected,
   onClick,
+  onDoubleClick,
 }: {
   msg: MessageSummary;
   selected: boolean;
   onClick: () => void;
+  onDoubleClick: () => void;
 }) {
   return (
     <Box
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       px="sm"
       py={8}
       style={{
@@ -50,12 +53,14 @@ export function MessageList({
   loading,
   selectedUid,
   onSelect,
+  onOpen,
 }: {
   messages: MessageSummary[];
   total: number;
   loading: boolean;
   selectedUid: number | null;
   onSelect: (uid: number) => void;
+  onOpen: (uid: number) => void;
 }) {
   return (
     <Stack gap={0} h="100%">
@@ -80,7 +85,13 @@ export function MessageList({
           </Center>
         ) : (
           messages.map((m) => (
-            <Row key={m.uid} msg={m} selected={m.uid === selectedUid} onClick={() => onSelect(m.uid)} />
+            <Row
+              key={m.uid}
+              msg={m}
+              selected={m.uid === selectedUid}
+              onClick={() => onSelect(m.uid)}
+              onDoubleClick={() => onOpen(m.uid)}
+            />
           ))
         )}
       </ScrollArea>

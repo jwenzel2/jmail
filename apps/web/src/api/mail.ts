@@ -30,3 +30,8 @@ export const sendMessage = (msg: SendMessage) =>
 
 export const attachmentUrl = (folder: string, uid: number, partId: string) =>
   `/api/mail/message/${enc(folder)}/${uid}/attachment/${enc(partId)}`;
+
+export const messageSourceUrl = (folder: string, uid: number) =>
+  `/api/mail/message/${enc(folder)}/${uid}/source.eml`;
+
+export const messageWindowUrl = (folder: string, uid: number) => `/message/${enc(folder)}/${uid}`;

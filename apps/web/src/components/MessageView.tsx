@@ -1,16 +1,35 @@
 import type { MessageDetail } from '@jmail/shared';
-import { ActionIcon, Alert, Anchor, Box, Button, Divider, Group, Stack, Text, Title, Tooltip } from '@mantine/core';
+import {
+  ActionIcon,
+  Alert,
+  Anchor,
+  Box,
+  Button,
+  Code,
+  Divider,
+  Group,
+  Menu,
+  Modal,
+  Stack,
+  Text,
+  Title,
+  Tooltip,
+} from '@mantine/core';
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconDownload,
+  IconExternalLink,
   IconMailCheck,
+  IconMenu2,
   IconPaperclip,
   IconPhoto,
   IconShieldX,
+  IconSourceCode,
   IconTrash,
 } from '@tabler/icons-react';
 import { useMemo, useState } from 'react';
-import { attachmentUrl } from '../api/mail';
+import { attachmentUrl, messageSourceUrl, messageWindowUrl } from '../api/mail';
 import { formatAddressFull, formatBytes, formatFullDate } from '../utils/format';
 
 function buildSrcDoc(html: string, allowImages: boolean): string {
@@ -29,6 +48,7 @@ export function MessageView({
   onDelete,
   onMarkSpam,
   onNotSpam,
+  standalone = false,
 }: {
   message: MessageDetail;
   isJunk: boolean;
@@ -37,8 +57,10 @@ export function MessageView({
   onDelete: (m: MessageDetail) => void;
   onMarkSpam: (m: MessageDetail) => void;
   onNotSpam: (m: MessageDetail) => void;
+  standalone?: boolean;
 }) {
   const [showImages, setShowImages] = useState(false);
+  const [showHeaders, setShowHeaders] = useState(false);
   const hasRemote = useMemo(
     () => (message.html ? REMOTE_RE.test(message.html) : false),
     [message.html],
@@ -53,34 +75,79 @@ export function MessageView({
             {message.subject || '(no subject)'}
           </Title>
           <Group gap={4} wrap="nowrap">
-            <Tooltip label="Reply">
-              <ActionIcon variant="subtle" onClick={() => onReply(message)}>
-                <IconArrowBackUp size={18} />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip label="Forward">
-              <ActionIcon variant="subtle" onClick={() => onForward(message)}>
-                <IconArrowForwardUp size={18} />
-              </ActionIcon>
-            </Tooltip>
-            {isJunk ? (
+            {!standalone ? (
+              <>
+                <Tooltip label="Reply">
+                  <ActionIcon variant="subtle" onClick={() => onReply(message)}>
+                    <IconArrowBackUp size={18} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Forward">
+                  <ActionIcon variant="subtle" onClick={() => onForward(message)}>
+                    <IconArrowForwardUp size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
+            ) : null}
+            <Menu position="bottom-end" withArrow>
+              <Menu.Target>
+                <Tooltip label="More">
+                  <ActionIcon variant="subtle">
+                    <IconMenu2 size={18} />
+                  </ActionIcon>
+                </Tooltip>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {!standalone ? (
+                  <Menu.Item
+                    leftSection={<IconExternalLink size={16} />}
+                    onClick={() =>
+                      window.open(
+                        messageWindowUrl(message.folder, message.uid),
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
+                    }
+                  >
+                    Open in new window
+                  </Menu.Item>
+                ) : null}
+                <Menu.Item
+                  leftSection={<IconSourceCode size={16} />}
+                  onClick={() => setShowHeaders(true)}
+                >
+                  View message headers
+                </Menu.Item>
+                <Menu.Item
+                  component="a"
+                  href={messageSourceUrl(message.folder, message.uid)}
+                  download
+                  leftSection={<IconDownload size={16} />}
+                >
+                  Download message (.eml)
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+            {!standalone && isJunk ? (
               <Tooltip label="Not spam (move to Inbox)">
                 <ActionIcon variant="subtle" color="green" onClick={() => onNotSpam(message)}>
                   <IconMailCheck size={18} />
                 </ActionIcon>
               </Tooltip>
-            ) : (
+            ) : !standalone ? (
               <Tooltip label="Mark as spam (move to Junk)">
                 <ActionIcon variant="subtle" color="orange" onClick={() => onMarkSpam(message)}>
                   <IconShieldX size={18} />
                 </ActionIcon>
               </Tooltip>
-            )}
-            <Tooltip label="Delete">
-              <ActionIcon variant="subtle" color="red" onClick={() => onDelete(message)}>
-                <IconTrash size={18} />
-              </ActionIcon>
-            </Tooltip>
+            ) : null}
+            {!standalone ? (
+              <Tooltip label="Delete">
+                <ActionIcon variant="subtle" color="red" onClick={() => onDelete(message)}>
+                  <IconTrash size={18} />
+                </ActionIcon>
+              </Tooltip>
+            ) : null}
           </Group>
         </Group>
         <Group gap="xs" mt={6}>
@@ -152,6 +219,17 @@ export function MessageView({
           </Group>
         </>
       ) : null}
+
+      <Modal
+        opened={showHeaders}
+        onClose={() => setShowHeaders(false)}
+        title="Message headers"
+        size="xl"
+      >
+        <Code block style={{ whiteSpace: 'pre-wrap', maxHeight: '70vh', overflow: 'auto' }}>
+          {message.rawHeaders}
+        </Code>
+      </Modal>
     </Stack>
   );
 }

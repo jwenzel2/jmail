@@ -49,6 +49,13 @@ function hasAttachments(node: MessageStructureObject | undefined): boolean {
   return collectAttachments(node).some((a) => !a.inline);
 }
 
+/** Returns the original RFC 5322 header block without the message body. */
+export function extractRawHeaders(source: Buffer): string {
+  const text = source.toString('utf8');
+  const match = text.match(/\r?\n\r?\n/);
+  return match ? text.slice(0, match.index) : text;
+}
+
 function toSummary(msg: FetchMessageObject): MessageSummary {
   const env = msg.envelope;
   const date = new Date(env?.date ?? msg.internalDate ?? Date.now());
@@ -117,7 +124,14 @@ export async function getMessage(
     try {
       const msg = await client.fetchOne(
         `${uid}`,
-        { uid: true, envelope: true, flags: true, source: true, bodyStructure: true, internalDate: true },
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          source: true,
+          bodyStructure: true,
+          internalDate: true,
+        },
         { uid: true },
       );
       if (!msg || !msg.source) return null;
@@ -155,8 +169,27 @@ export async function getMessage(
         flagged: msg.flags?.has('\\Flagged') ?? false,
         html,
         text: parsed.text ?? null,
+        rawHeaders: extractRawHeaders(msg.source),
         attachments: collectAttachments(msg.bodyStructure),
       } satisfies MessageDetail;
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+/** Downloads the original RFC 5322 message source as an .eml buffer. */
+export async function downloadMessageSource(
+  sid: string,
+  email: string,
+  folder: string,
+  uid: number,
+): Promise<Buffer | null> {
+  return withImap(sid, email, async (client) => {
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const msg = await client.fetchOne(`${uid}`, { source: true }, { uid: true });
+      return msg && msg.source ? msg.source : null;
     } finally {
       lock.release();
     }
@@ -196,7 +229,11 @@ export async function downloadAttachment(
 }
 
 /** Applies a bulk action to messages by UID. */
-export async function applyAction(sid: string, email: string, action: MessageAction): Promise<void> {
+export async function applyAction(
+  sid: string,
+  email: string,
+  action: MessageAction,
+): Promise<void> {
   await withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(action.folder);
     try {
@@ -215,7 +252,8 @@ export async function applyAction(sid: string, email: string, action: MessageAct
           await client.messageFlagsRemove(uids, ['\\Flagged'], { uid: true });
           break;
         case 'move':
-          if (action.targetFolder) await client.messageMove(uids, action.targetFolder, { uid: true });
+          if (action.targetFolder)
+            await client.messageMove(uids, action.targetFolder, { uid: true });
           break;
         case 'delete': {
           const trash = await getFolderByRole(sid, email, 'trash');
@@ -265,7 +303,14 @@ export async function searchMessages(
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch(
         uids,
-        { uid: true, envelope: true, flags: true, size: true, internalDate: true, bodyStructure: true },
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          size: true,
+          internalDate: true,
+          bodyStructure: true,
+        },
         { uid: true },
       )) {
         messages.push(toSummary(msg));

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { IconPencil, IconSearch } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { messageWindowUrl } from '../api/mail';
 import { ComposeModal, EMPTY_DRAFT, type ComposeDraft } from './ComposeModal';
 import { FolderTree } from './FolderTree';
 import { MessageList } from './MessageList';
@@ -103,6 +104,9 @@ export function Mailbox() {
   const currentFolderRole = (folders.data ?? []).find((f) => f.path === folder)?.role;
 
   const openCompose = (draft: ComposeDraft) => setCompose({ opened: true, draft });
+  const openMessageWindow = (uid: number) => {
+    window.open(messageWindowUrl(folder, uid), '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <Flex direction="column" h="calc(100vh - 56px)">
@@ -156,6 +160,7 @@ export function Mailbox() {
             loading={active.isLoading || active.isFetching}
             selectedUid={selectedUid}
             onSelect={setSelectedUid}
+            onOpen={openMessageWindow}
           />
         </Box>
 

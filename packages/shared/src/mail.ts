@@ -90,6 +90,8 @@ export const messageDetailSchema = z.object({
   /** Sanitized HTML body, or null if only plain text is available. */
   html: z.string().nullable(),
   text: z.string().nullable(),
+  /** Original RFC 5322 header block exactly as received. */
+  rawHeaders: z.string(),
   attachments: z.array(attachmentMetaSchema),
 });
 export type MessageDetail = z.infer<typeof messageDetailSchema>;

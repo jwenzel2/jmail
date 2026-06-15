@@ -6,6 +6,7 @@ import { listFolders } from '../mail/folders.js';
 import {
   applyAction,
   downloadAttachment,
+  downloadMessageSource,
   getMessage,
   listMessages,
   searchMessages,
@@ -33,9 +34,7 @@ const attachmentParamsSchema = messageParamsSchema.extend({
 });
 
 /** Narrows req.currentUser/sessionId after requireAuth; returns the pair or replies 401. */
-function authed(
-  req: FastifyRequest,
-): { sid: string; email: string } {
+function authed(req: FastifyRequest): { sid: string; email: string } {
   // requireAuth guarantees currentUser; sessionId is set alongside it.
   const user = req.currentUser;
   const sid = req.sessionId;
@@ -71,20 +70,31 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     return message;
   });
 
-  app.get(
-    '/api/mail/message/:folder/:uid/attachment/:partId',
-    async (req, reply: FastifyReply) => {
-      const { sid, email } = authed(req);
-      const { folder, uid, partId } = attachmentParamsSchema.parse(req.params);
-      const att = await downloadAttachment(sid, email, decodeURIComponent(folder), uid, partId);
-      if (!att) return reply.code(404).send({ error: 'not_found' });
-      reply.header('content-type', att.contentType);
-      if (att.filename) {
-        reply.header('content-disposition', `attachment; filename="${att.filename.replace(/"/g, '')}"`);
-      }
-      return reply.send(att.content);
-    },
-  );
+  app.get('/api/mail/message/:folder/:uid/source.eml', async (req, reply) => {
+    const { sid, email } = authed(req);
+    const { folder, uid } = messageParamsSchema.parse(req.params);
+    const source = await downloadMessageSource(sid, email, decodeURIComponent(folder), uid);
+    if (!source) return reply.code(404).send({ error: 'not_found' });
+    return reply
+      .header('content-type', 'message/rfc822')
+      .header('content-disposition', `attachment; filename="message-${uid}.eml"`)
+      .send(source);
+  });
+
+  app.get('/api/mail/message/:folder/:uid/attachment/:partId', async (req, reply: FastifyReply) => {
+    const { sid, email } = authed(req);
+    const { folder, uid, partId } = attachmentParamsSchema.parse(req.params);
+    const att = await downloadAttachment(sid, email, decodeURIComponent(folder), uid, partId);
+    if (!att) return reply.code(404).send({ error: 'not_found' });
+    reply.header('content-type', att.contentType);
+    if (att.filename) {
+      reply.header(
+        'content-disposition',
+        `attachment; filename="${att.filename.replace(/"/g, '')}"`,
+      );
+    }
+    return reply.send(att.content);
+  });
 
   app.post('/api/mail/actions', async (req) => {
     const { sid, email } = authed(req);

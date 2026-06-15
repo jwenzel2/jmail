@@ -6,6 +6,7 @@ import { useSession } from './hooks/useSession';
 import { ContactsPage } from './pages/ContactsPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { LoginPage } from './pages/LoginPage';
+import { MessageWindowPage } from './pages/MessageWindowPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminBrandingPage } from './pages/admin/AdminBrandingPage';
 import { AdminSpamPage } from './pages/admin/AdminSpamPage';
@@ -27,21 +28,29 @@ export function App() {
   }
 
   return (
-    <AppLayout user={user}>
-      <Routes>
-        <Route path="/" element={<Mailbox />} />
-        <Route path="/contacts" element={<ContactsPage />} />
-        <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/settings/spam" element={<SpamSettingsPage />} />
-        {user.isAdmin ? (
-          <>
-            <Route path="/admin/spam" element={<AdminSpamPage />} />
-            <Route path="/admin/branding" element={<AdminBrandingPage />} />
-            <Route path="/admin/audit" element={<AdminAuditPage />} />
-          </>
-        ) : null}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppLayout>
+    <Routes>
+      <Route path="/message/:folder/:uid" element={<MessageWindowPage />} />
+      <Route
+        path="*"
+        element={
+          <AppLayout user={user}>
+            <Routes>
+              <Route path="/" element={<Mailbox />} />
+              <Route path="/contacts" element={<ContactsPage />} />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/settings/spam" element={<SpamSettingsPage />} />
+              {user.isAdmin ? (
+                <>
+                  <Route path="/admin/spam" element={<AdminSpamPage />} />
+                  <Route path="/admin/branding" element={<AdminBrandingPage />} />
+                  <Route path="/admin/audit" element={<AdminAuditPage />} />
+                </>
+              ) : null}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AppLayout>
+        }
+      />
+    </Routes>
   );
 }
