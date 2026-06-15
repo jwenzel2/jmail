@@ -11,6 +11,7 @@ import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
 import { useFolders, useMessage, useMessageAction, useMessages, useSearch } from '../hooks/useMail';
 import { formatAddressFull, formatFullDate } from '../utils/format';
+import { openMessagePopup } from '../utils/windows';
 
 const PAGE_SIZE = 50;
 
@@ -104,9 +105,7 @@ export function Mailbox() {
   const currentFolderRole = (folders.data ?? []).find((f) => f.path === folder)?.role;
 
   const openCompose = (draft: ComposeDraft) => setCompose({ opened: true, draft });
-  const openMessageWindow = (uid: number) => {
-    window.open(messageWindowUrl(folder, uid), '_blank', 'noopener,noreferrer');
-  };
+  const openMessageWindow = (uid: number) => openMessagePopup(messageWindowUrl(folder, uid));
 
   return (
     <Flex direction="column" h="calc(100vh - 56px)">

@@ -31,6 +31,7 @@ import {
 import { useMemo, useState } from 'react';
 import { attachmentUrl, messageSourceUrl, messageWindowUrl } from '../api/mail';
 import { formatAddressFull, formatBytes, formatFullDate } from '../utils/format';
+import { openMessagePopup } from '../utils/windows';
 
 function buildSrcDoc(html: string, allowImages: boolean): string {
   const imgSrc = allowImages ? 'img-src http: https: data: cid:;' : 'img-src data:;';
@@ -101,13 +102,7 @@ export function MessageView({
                 {!standalone ? (
                   <Menu.Item
                     leftSection={<IconExternalLink size={16} />}
-                    onClick={() =>
-                      window.open(
-                        messageWindowUrl(message.folder, message.uid),
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
+                    onClick={() => openMessagePopup(messageWindowUrl(message.folder, message.uid))}
                   >
                     Open in new window
                   </Menu.Item>
