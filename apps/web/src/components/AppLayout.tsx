@@ -1,6 +1,7 @@
 import { AppShell, Avatar, Button, Group, Menu, Text, Title, UnstyledButton } from '@mantine/core';
 import {
   IconAddressBook,
+  IconCalendar,
   IconLogout,
   IconMail,
   IconSettings,
@@ -49,6 +50,7 @@ export function AppLayout({ user, children }: { user: CurrentUser; children: Rea
             <Group gap={4} wrap="nowrap">
               <NavButton to="/" icon={<IconMail size={16} />} label="Mail" />
               <NavButton to="/contacts" icon={<IconAddressBook size={16} />} label="Contacts" />
+              <NavButton to="/calendar" icon={<IconCalendar size={16} />} label="Calendar" />
               <NavButton to="/settings/spam" icon={<IconSettings size={16} />} label="Spam" />
               {user.isAdmin ? (
                 <NavButton to="/admin/spam" icon={<IconShieldCog size={16} />} label="Admin" />

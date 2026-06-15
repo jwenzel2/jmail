@@ -4,6 +4,7 @@ import { AppLayout } from './components/AppLayout';
 import { Mailbox } from './components/Mailbox';
 import { useSession } from './hooks/useSession';
 import { ContactsPage } from './pages/ContactsPage';
+import { CalendarPage } from './pages/CalendarPage';
 import { LoginPage } from './pages/LoginPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminBrandingPage } from './pages/admin/AdminBrandingPage';
@@ -30,6 +31,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Mailbox />} />
         <Route path="/contacts" element={<ContactsPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/settings/spam" element={<SpamSettingsPage />} />
         {user.isAdmin ? (
           <>
