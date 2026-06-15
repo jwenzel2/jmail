@@ -185,7 +185,8 @@ openssl rand -hex 32
 ```
 
 Use one generated value for `SESSION_SECRET` and another for `TOKEN_ENCRYPTION_KEY`. Update the OIDC
-client's allowed redirect URI to exactly match `OIDC_REDIRECT_URI`. The imported Keycloak realm
+client's allowed redirect URIs to include both `OIDC_REDIRECT_URI` and
+`${PUBLIC_URL}/api/v1/mobile/callback` for Android sign-in. The imported Keycloak realm
 contains localhost development URLs; replace them using
 [`packaging/keycloak/README.md`](../packaging/keycloak/README.md).
 

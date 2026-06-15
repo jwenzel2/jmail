@@ -12,6 +12,7 @@ import { calendarRoutes } from './routes/calendar.js';
 import { contactRoutes } from './routes/contacts.js';
 import { healthRoutes } from './routes/health.js';
 import { mailRoutes } from './routes/mail.js';
+import { mobileRoutes } from './routes/mobile.js';
 import { spamRoutes } from './routes/spam.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -38,6 +39,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(calendarRoutes);
   await app.register(contactRoutes);
   await app.register(mailRoutes);
+  await app.register(mobileRoutes);
   await app.register(spamRoutes);
   await app.register(adminRoutes);
 

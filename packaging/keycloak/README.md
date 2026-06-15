@@ -27,12 +27,14 @@ Set these values using the public HTTPS hostname that serves jmail:
 Root URL:            https://mail.example.com
 Home URL:            https://mail.example.com
 Valid redirect URIs: https://mail.example.com/auth/callback
+                     https://mail.example.com/api/v1/mobile/callback
 Web origins:         https://mail.example.com
 ```
 
-The Valid Redirect URI must exactly match `OIDC_REDIRECT_URI` in `/etc/jmail/api.env`, including the
-scheme, hostname, port when nonstandard, path, and absence or presence of a trailing slash. Prefer
-the exact callback URI over a wildcard in production.
+The browser Valid Redirect URI must exactly match `OIDC_REDIRECT_URI` in `/etc/jmail/api.env`,
+including the scheme, hostname, port when nonstandard, path, and absence or presence of a trailing
+slash. The Android app also uses `${PUBLIC_URL}/api/v1/mobile/callback`. Prefer exact callback URIs
+over a wildcard in production.
 
 Also set the client secret from Keycloak's **Credentials** tab as `OIDC_CLIENT_SECRET` in
 `/etc/jmail/api.env`. Restart jmail after changing its environment file:

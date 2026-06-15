@@ -8,6 +8,7 @@ import {
   getSessionUser,
   SESSION_TTL_SECONDS,
 } from '../repositories/sessions.js';
+import { getMobileTokenSession } from '../repositories/mobileTokens.js';
 
 const COOKIE_NAME = 'jmail_sid';
 
@@ -43,13 +44,25 @@ export const sessionPlugin = fp(async (app) => {
 
   app.addHook('onRequest', async (req) => {
     const raw = req.cookies[COOKIE_NAME];
-    if (!raw) return;
-    const unsigned = req.unsignCookie(raw);
-    if (!unsigned.valid || !unsigned.value) return;
-    const user = await getSessionUser(unsigned.value);
-    if (user) {
-      req.currentUser = user;
-      req.sessionId = unsigned.value;
+    if (raw) {
+      const unsigned = req.unsignCookie(raw);
+      if (unsigned.valid && unsigned.value) {
+        const user = await getSessionUser(unsigned.value);
+        if (user) {
+          req.currentUser = user;
+          req.sessionId = unsigned.value;
+          return;
+        }
+      }
+    }
+
+    const authorization = req.headers.authorization;
+    if (authorization?.startsWith('Bearer ')) {
+      const mobile = await getMobileTokenSession(authorization.slice(7));
+      if (mobile) {
+        req.currentUser = mobile.user;
+        req.sessionId = mobile.sid;
+      }
     }
   });
 
