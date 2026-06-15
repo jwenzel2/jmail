@@ -1,6 +1,7 @@
-import { Button, Group, Modal, Stack, TextInput, Textarea } from '@mantine/core';
+import { Button, Group, Modal, Stack, TagsInput, TextInput, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useEffect, useState } from 'react';
+import { useContacts } from '../hooks/useContacts';
 import { useSendMessage } from '../hooks/useMail';
 
 export interface ComposeDraft {
@@ -38,15 +39,25 @@ export function ComposeModal({
   onClose: () => void;
 }) {
   const [form, setForm] = useState<ComposeDraft>(draft);
+  const [to, setTo] = useState<string[]>([]);
+  const [cc, setCc] = useState<string[]>([]);
   const send = useSendMessage();
+  const contacts = useContacts();
+  const contactOptions = (contacts.data?.contacts ?? []).map((contact) => ({
+    value: contact.email,
+    label: `${contact.displayName} <${contact.email}>`,
+  }));
 
   // Reset the form whenever a new draft is opened.
   useEffect(() => {
-    if (opened) setForm(draft);
+    if (opened) {
+      setForm(draft);
+      setTo(parseAddresses(draft.to));
+      setCc(parseAddresses(draft.cc));
+    }
   }, [opened, draft]);
 
   const submit = () => {
-    const to = parseAddresses(form.to);
     if (to.length === 0) {
       notifications.show({ color: 'red', message: 'At least one recipient is required.' });
       return;
@@ -54,7 +65,7 @@ export function ComposeModal({
     send.mutate(
       {
         to,
-        cc: parseAddresses(form.cc),
+        cc,
         bcc: [],
         subject: form.subject,
         text: form.body,
@@ -75,16 +86,22 @@ export function ComposeModal({
   return (
     <Modal opened={opened} onClose={onClose} title="New message" size="lg">
       <Stack>
-        <TextInput
+        <TagsInput
           label="To"
           placeholder="recipient@example.com, another@example.com"
-          value={form.to}
-          onChange={(e) => setForm({ ...form, to: e.currentTarget.value })}
+          data={contactOptions}
+          value={to}
+          onChange={setTo}
+          splitChars={[',', ';']}
+          clearable
         />
-        <TextInput
+        <TagsInput
           label="Cc"
-          value={form.cc}
-          onChange={(e) => setForm({ ...form, cc: e.currentTarget.value })}
+          data={contactOptions}
+          value={cc}
+          onChange={setCc}
+          splitChars={[',', ';']}
+          clearable
         />
         <TextInput
           label="Subject"

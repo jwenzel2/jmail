@@ -1,14 +1,11 @@
+import { AppShell, Avatar, Button, Group, Menu, Text, Title, UnstyledButton } from '@mantine/core';
 import {
-  AppShell,
-  Avatar,
-  Button,
-  Group,
-  Menu,
-  Text,
-  Title,
-  UnstyledButton,
-} from '@mantine/core';
-import { IconLogout, IconMail, IconSettings, IconShieldCog } from '@tabler/icons-react';
+  IconAddressBook,
+  IconLogout,
+  IconMail,
+  IconSettings,
+  IconShieldCog,
+} from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { CurrentUser } from '@jmail/shared';
@@ -51,6 +48,7 @@ export function AppLayout({ user, children }: { user: CurrentUser; children: Rea
             </Group>
             <Group gap={4} wrap="nowrap">
               <NavButton to="/" icon={<IconMail size={16} />} label="Mail" />
+              <NavButton to="/contacts" icon={<IconAddressBook size={16} />} label="Contacts" />
               <NavButton to="/settings/spam" icon={<IconSettings size={16} />} label="Spam" />
               {user.isAdmin ? (
                 <NavButton to="/admin/spam" icon={<IconShieldCog size={16} />} label="Admin" />

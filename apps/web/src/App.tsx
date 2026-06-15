@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
 import { Mailbox } from './components/Mailbox';
 import { useSession } from './hooks/useSession';
+import { ContactsPage } from './pages/ContactsPage';
 import { LoginPage } from './pages/LoginPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminBrandingPage } from './pages/admin/AdminBrandingPage';
@@ -28,6 +29,7 @@ export function App() {
     <AppLayout user={user}>
       <Routes>
         <Route path="/" element={<Mailbox />} />
+        <Route path="/contacts" element={<ContactsPage />} />
         <Route path="/settings/spam" element={<SpamSettingsPage />} />
         {user.isAdmin ? (
           <>

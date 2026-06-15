@@ -8,6 +8,7 @@ import { sessionPlugin } from './plugins/session.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { brandingRoutes } from './routes/branding.js';
+import { contactRoutes } from './routes/contacts.js';
 import { healthRoutes } from './routes/health.js';
 import { mailRoutes } from './routes/mail.js';
 import { spamRoutes } from './routes/spam.js';
@@ -33,6 +34,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(healthRoutes);
   await app.register(brandingRoutes);
   await app.register(authRoutes);
+  await app.register(contactRoutes);
   await app.register(mailRoutes);
   await app.register(spamRoutes);
   await app.register(adminRoutes);

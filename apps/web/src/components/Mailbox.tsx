@@ -3,6 +3,7 @@ import { Box, Button, Center, Flex, Group, Loader, Text, TextInput } from '@mant
 import { useQueryClient } from '@tanstack/react-query';
 import { IconPencil, IconSearch } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ComposeModal, EMPTY_DRAFT, type ComposeDraft } from './ComposeModal';
 import { FolderTree } from './FolderTree';
 import { MessageList } from './MessageList';
@@ -23,7 +24,9 @@ function quote(m: MessageDetail): string {
 
 function replyDraft(m: MessageDetail): ComposeDraft {
   return {
-    to: m.replyTo.length ? m.replyTo.map((a) => a.address).join(', ') : m.from.map((a) => a.address).join(', '),
+    to: m.replyTo.length
+      ? m.replyTo.map((a) => a.address).join(', ')
+      : m.from.map((a) => a.address).join(', '),
     cc: '',
     subject: m.subject.startsWith('Re:') ? m.subject : `Re: ${m.subject}`,
     body: quote(m),
@@ -41,6 +44,7 @@ function forwardDraft(m: MessageDetail): ComposeDraft {
 }
 
 export function Mailbox() {
+  const [params, setParams] = useSearchParams();
   const [folder, setFolder] = useState('INBOX');
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState('');
@@ -57,6 +61,13 @@ export function Mailbox() {
   const active = search.trim() ? searching : browse;
   const message = useMessage(selectedUid !== null ? folder : null, selectedUid);
   const action = useMessageAction();
+
+  useEffect(() => {
+    const recipient = params.get('compose');
+    if (!recipient) return;
+    setCompose({ opened: true, draft: { ...EMPTY_DRAFT, to: recipient } });
+    setParams({}, { replace: true });
+  }, [params, setParams]);
 
   // Refresh unread counts after a message is opened (server marks it \Seen).
   useEffect(() => {
