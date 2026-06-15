@@ -30,10 +30,10 @@ issuers = https://AUTH_HOST/realms/jmail
 # ALTERNATIVE: remote token introspection (RFC 7662). Works with providers that
 # don't issue JWTs. With Keycloak prefer local validation above.
 #
-# introspection_url = https://AUTH_HOST/realms/jmail/protocol/openid-connect/token/introspect
+# Dovecot 2.3 sends HTTP Basic credentials when they are embedded in the URL.
+# URL-encode CLIENT_ID and CLIENT_SECRET if they contain reserved URL characters.
+# introspection_url = https://CLIENT_ID:CLIENT_SECRET@AUTH_HOST/realms/jmail/protocol/openid-connect/token/introspect
 # introspection_mode = post
-# client_id = jmail
-# client_secret = CHANGEME
 # username_attribute = email
 # active_attribute = active
 # active_value = true

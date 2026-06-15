@@ -31,6 +31,8 @@ PostgreSQL (jmail app data only — no mailbox content)
 ```
 
 See [`docs/plan.md`](docs/plan.md) for the full design and milestones.
+For a production installation under `/opt/jmail`, see
+[`docs/deployment.md`](docs/deployment.md).
 
 ## Monorepo layout
 

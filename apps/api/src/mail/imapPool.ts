@@ -33,6 +33,10 @@ async function connect(email: string, accessToken: string): Promise<ImapFlow> {
     tls: { rejectUnauthorized: config.IMAP_TLS_REJECT_UNAUTHORIZED },
     logger: false,
   });
+  // ImapFlow can emit an error while connect() is still pending. Keep that
+  // event from becoming an uncaught EventEmitter error; connect() still rejects
+  // and the request receives the authentication/connection failure.
+  client.on('error', () => undefined);
   await client.connect();
   return client;
 }

@@ -11,6 +11,7 @@ Group=jmail
 WorkingDirectory=/opt/jmail/apps/api
 # Environment is read from this file (see .env.example for keys).
 EnvironmentFile=/etc/jmail/api.env
+ExecStartPre=/usr/bin/node /opt/jmail/apps/api/dist/migrate.js up
 ExecStart=/usr/bin/node /opt/jmail/apps/api/dist/index.js
 Restart=on-failure
 RestartSec=2

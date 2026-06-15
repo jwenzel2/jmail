@@ -1,14 +1,15 @@
 // Fetches an OIDC provider's JWKS and writes each signing key as a PEM into
-// Dovecot's local-validation key-dict layout: <out>/shared/<azp>/<alg>/<kid>.
+// Dovecot's local-validation key-dict layout: <out>/<azp>/<alg>/<kid>.
 //
-//   node scripts/dev-jwks-to-keys.mjs <issuerUrl> <outDir>
+//   node scripts/dev-jwks-to-keys.mjs <issuerUrl> <outDir> [clientId]
 import { createPublicKey } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const issuer = process.argv[2];
 const outDir = process.argv[3];
+const clientId = process.argv[4] || 'jmail';
 if (!issuer || !outDir) {
-  console.error('usage: dev-jwks-to-keys.mjs <issuerUrl> <outDir>');
+  console.error('usage: dev-jwks-to-keys.mjs <issuerUrl> <outDir> [clientId]');
   process.exit(1);
 }
 
@@ -24,7 +25,7 @@ for (const jwk of keys) {
   // fs:posix dict strips the `shared/` namespace — so the file lives at
   // <prefix>/<azp>/<alg>/<kid>. azp is the client id; also write a "default"
   // fallback copy.
-  for (const azp of ['jmail', 'default']) {
+  for (const azp of new Set([clientId, 'default'])) {
     const dir = `${outDir}/${azp}/${alg}`;
     mkdirSync(dir, { recursive: true });
     writeFileSync(`${dir}/${jwk.kid}`, pem);
