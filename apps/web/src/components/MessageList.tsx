@@ -17,12 +17,13 @@ function Row({
       onClick={onClick}
       px="sm"
       py={8}
-      style={(theme) => ({
+      style={{
         cursor: 'pointer',
-        borderBottom: `1px solid ${theme.colors.gray[2]}`,
-        backgroundColor: selected ? theme.colors.blue[0] : undefined,
-        borderLeft: `3px solid ${selected ? theme.colors.blue[6] : 'transparent'}`,
-      })}
+        borderBottom: '1px solid var(--mantine-color-default-border)',
+        backgroundColor: selected ? 'var(--mantine-primary-color-light)' : undefined,
+        color: selected ? 'var(--mantine-primary-color-light-color)' : undefined,
+        borderLeft: `3px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'transparent'}`,
+      }}
     >
       <Group justify="space-between" wrap="nowrap" gap="xs">
         <Text size="sm" fw={msg.seen ? 400 : 700} truncate>
@@ -58,7 +59,13 @@ export function MessageList({
 }) {
   return (
     <Stack gap={0} h="100%">
-      <Group justify="space-between" px="sm" py={6} bg="gray.0">
+      <Group
+        justify="space-between"
+        px="sm"
+        py={6}
+        bg="var(--mantine-color-body)"
+        style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+      >
         <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
           {total} message{total === 1 ? '' : 's'}
         </Text>

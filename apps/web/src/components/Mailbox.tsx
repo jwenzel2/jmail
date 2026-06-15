@@ -95,7 +95,13 @@ export function Mailbox() {
 
   return (
     <Flex direction="column" h="calc(100vh - 56px)">
-      <Group justify="space-between" px="sm" py={6} bg="gray.0">
+      <Group
+        justify="space-between"
+        px="sm"
+        py={6}
+        bg="var(--mantine-color-body)"
+        style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+      >
         <Button
           leftSection={<IconPencil size={16} />}
           size="xs"
@@ -122,7 +128,7 @@ export function Mailbox() {
       </Group>
 
       <Flex style={{ flex: 1, minHeight: 0 }}>
-        <Box w={230} style={(t) => ({ borderRight: `1px solid ${t.colors.gray[3]}` })}>
+        <Box w={230} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
           {folders.isLoading ? (
             <Center h="100%">
               <Loader size="sm" />
@@ -132,7 +138,7 @@ export function Mailbox() {
           )}
         </Box>
 
-        <Box w={400} style={(t) => ({ borderRight: `1px solid ${t.colors.gray[3]}` })}>
+        <Box w={400} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
           <MessageList
             messages={active.data?.messages ?? []}
             total={active.data?.total ?? 0}
