@@ -91,7 +91,12 @@ export function extractRawHeaders(source: Buffer): string {
 
 function toSummary(msg: FetchMessageObject): MessageSummary {
   const env = msg.envelope;
-  const date = parseMessageHeaderDate(headerValue(msg.headers, 'date'));
+  const headerDate = parseMessageHeaderDate(headerValue(msg.headers, 'date'));
+  // Fall back to envelope date then internalDate when the Date header is absent or unparseable.
+  const date =
+    headerDate.getTime() !== 0
+      ? headerDate
+      : parseMessageHeaderDate(env?.date ?? msg.internalDate);
   return {
     uid: msg.uid,
     subject: env?.subject ?? '',
@@ -113,6 +118,7 @@ const summaryFetchQuery: FetchQueryObject = {
   flags: true,
   size: true,
   bodyStructure: true,
+  internalDate: true,
   headers: ['date'],
 };
 
