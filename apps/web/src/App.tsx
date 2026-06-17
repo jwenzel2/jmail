@@ -7,6 +7,7 @@ import { ContactsPage } from './pages/ContactsPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { LoginPage } from './pages/LoginPage';
 import { MessageWindowPage } from './pages/MessageWindowPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { AdminAuditPage } from './pages/admin/AdminAuditPage';
 import { AdminBrandingPage } from './pages/admin/AdminBrandingPage';
 import { AdminSpamPage } from './pages/admin/AdminSpamPage';
@@ -38,6 +39,7 @@ export function App() {
               <Route path="/" element={<Mailbox />} />
               <Route path="/contacts" element={<ContactsPage />} />
               <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/spam" element={<SpamSettingsPage />} />
               {user.isAdmin ? (
                 <>

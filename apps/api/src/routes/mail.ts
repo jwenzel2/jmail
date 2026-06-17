@@ -34,6 +34,8 @@ const messageParamsSchema = z.object({
 const searchQuerySchema = z.object({
   folder: z.string().default('INBOX'),
   q: z.string().min(1),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(200).default(50),
   filter: messageListFilterSchema.default('all'),
   sort: messageListSortSchema.default('dateDesc'),
 });
@@ -67,8 +69,8 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/mail/search', async (req) => {
     const { sid, email } = authed(req);
-    const { folder, q, filter, sort } = searchQuerySchema.parse(req.query);
-    return searchMessages(sid, email, folder, q, filter, sort);
+    const { folder, q, page, pageSize, filter, sort } = searchQuerySchema.parse(req.query);
+    return searchMessages(sid, email, folder, q, page, pageSize, filter, sort);
   });
 
   app.get('/api/mail/message/:folder/:uid', async (req, reply) => {

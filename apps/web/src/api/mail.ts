@@ -30,11 +30,13 @@ export const getMessage = (folder: string, uid: number) =>
 export const searchMessages = (
   folder: string,
   q: string,
+  page: number,
+  pageSize: number,
   filter: MessageListFilter,
   sort: MessageListSort,
 ) =>
   apiGet<MessageListResponse>(
-    `/api/mail/search?folder=${enc(folder)}&q=${enc(q)}&filter=${filter}&sort=${sort}`,
+    `/api/mail/search?folder=${enc(folder)}&q=${enc(q)}&page=${page}&pageSize=${pageSize}&filter=${filter}&sort=${sort}`,
   );
 
 export const applyAction = (action: MessageAction) =>

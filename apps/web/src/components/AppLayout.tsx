@@ -51,6 +51,7 @@ export function AppLayout({ user, children }: { user: CurrentUser; children: Rea
               <NavButton to="/" icon={<IconMail size={16} />} label="Mail" />
               <NavButton to="/contacts" icon={<IconAddressBook size={16} />} label="Contacts" />
               <NavButton to="/calendar" icon={<IconCalendar size={16} />} label="Calendar" />
+              <NavButton to="/settings" icon={<IconSettings size={16} />} label="Settings" />
               <NavButton to="/settings/spam" icon={<IconSettings size={16} />} label="Spam" />
               {user.isAdmin ? (
                 <NavButton to="/admin/spam" icon={<IconShieldCog size={16} />} label="Admin" />

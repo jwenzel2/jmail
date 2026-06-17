@@ -51,6 +51,12 @@ function hasAttachments(node: MessageStructureObject | undefined): boolean {
   return collectAttachments(node).some((a) => !a.inline);
 }
 
+function messageHeaderDate(value: Date | string | undefined): Date {
+  if (!value) return new Date(0);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+}
+
 /** Returns the original RFC 5322 header block without the message body. */
 export function extractRawHeaders(source: Buffer): string {
   const text = source.toString('utf8');
@@ -60,7 +66,7 @@ export function extractRawHeaders(source: Buffer): string {
 
 function toSummary(msg: FetchMessageObject): MessageSummary {
   const env = msg.envelope;
-  const date = new Date(env?.date ?? msg.internalDate ?? Date.now());
+  const date = messageHeaderDate(env?.date);
   return {
     uid: msg.uid,
     subject: env?.subject ?? '',
@@ -372,9 +378,10 @@ export async function searchMessages(
   email: string,
   folder: string,
   query: string,
+  page: number,
+  pageSize: number,
   filter: MessageListFilter,
   sort: MessageListSort,
-  limit = 100,
 ): Promise<MessageListResponse> {
   return withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(folder);
@@ -384,13 +391,13 @@ export async function searchMessages(
         { uid: true },
       );
       const uids = found || [];
-      if (uids.length === 0) return { folder, total: 0, page: 1, pageSize: limit, messages: [] };
+      if (uids.length === 0) return { folder, total: 0, page, pageSize, messages: [] };
 
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch(uids, summaryFetchQuery, { uid: true })) {
         messages.push(toSummary(msg));
       }
-      return pageMessages(folder, 1, limit, applyMessageListOptions(messages, filter, sort));
+      return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
     } finally {
       lock.release();
     }

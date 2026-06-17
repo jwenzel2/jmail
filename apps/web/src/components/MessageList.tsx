@@ -1,12 +1,30 @@
 import type { MessageListFilter, MessageListSort, MessageSummary } from '@jmail/shared';
-import { Box, Button, Center, Group, Loader, Menu, ScrollArea, Stack, Text } from '@mantine/core';
 import {
+  ActionIcon,
+  Box,
+  Button,
+  Center,
+  Group,
+  Loader,
+  Menu,
+  NumberInput,
+  ScrollArea,
+  Stack,
+  Text,
+  Tooltip,
+} from '@mantine/core';
+import {
+  IconArrowBarToLeft,
+  IconArrowBarToRight,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconFilter,
   IconPaperclip,
   IconSortDescending,
   IconStarFilled,
 } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
 import { formatAddressList, formatListDate } from '../utils/format';
 
 const filterOptions: { value: MessageListFilter; label: string }[] = [
@@ -33,6 +51,119 @@ const sortOptions: { value: MessageListSort; label: string }[] = [
 
 function optionLabel<T extends string>(options: { value: T; label: string }[], value: T): string {
   return options.find((option) => option.value === value)?.label ?? value;
+}
+
+function PageFooter({
+  page,
+  total,
+  pageSize,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, maxPage);
+  const [draft, setDraft] = useState<number | ''>(currentPage);
+
+  useEffect(() => {
+    setDraft(currentPage);
+  }, [currentPage]);
+
+  const goToPage = (next: number | '') => {
+    if (next === '') {
+      setDraft(currentPage);
+      return;
+    }
+    const normalized = Math.min(Math.max(Math.trunc(next), 1), maxPage);
+    setDraft(normalized);
+    if (normalized !== currentPage) onPageChange(normalized);
+  };
+
+  return (
+    <Group
+      justify="center"
+      gap={6}
+      px="sm"
+      py={6}
+      bg="var(--mantine-color-body)"
+      style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+    >
+      <Tooltip label="First page">
+        <ActionIcon
+          aria-label="First page"
+          variant="default"
+          size="sm"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(1)}
+        >
+          <IconArrowBarToLeft size={16} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Previous page">
+        <ActionIcon
+          aria-label="Previous page"
+          variant="default"
+          size="sm"
+          disabled={currentPage <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
+        >
+          <IconChevronLeft size={16} />
+        </ActionIcon>
+      </Tooltip>
+
+      <Group gap={6} wrap="nowrap">
+        <Text size="xs" c="dimmed">
+          Page
+        </Text>
+        <NumberInput
+          aria-label="Current page"
+          value={draft}
+          onChange={(value) => setDraft(value === '' ? '' : Number(value))}
+          onBlur={() => goToPage(draft)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') goToPage(draft);
+          }}
+          min={1}
+          max={maxPage}
+          allowDecimal={false}
+          allowNegative={false}
+          hideControls
+          size="xs"
+          w={56}
+          styles={{ input: { textAlign: 'center' } }}
+        />
+        <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+          of {maxPage}
+        </Text>
+      </Group>
+
+      <Tooltip label="Next page">
+        <ActionIcon
+          aria-label="Next page"
+          variant="default"
+          size="sm"
+          disabled={currentPage >= maxPage}
+          onClick={() => onPageChange(currentPage + 1)}
+        >
+          <IconChevronRight size={16} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Last page">
+        <ActionIcon
+          aria-label="Last page"
+          variant="default"
+          size="sm"
+          disabled={currentPage >= maxPage}
+          onClick={() => onPageChange(maxPage)}
+        >
+          <IconArrowBarToRight size={16} />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  );
 }
 
 function Row({
@@ -82,10 +213,13 @@ function Row({
 export function MessageList({
   messages,
   total,
+  page,
+  pageSize,
   filter,
   sort,
   loading,
   selectedUid,
+  onPageChange,
   onFilterChange,
   onSortChange,
   onSelect,
@@ -93,10 +227,13 @@ export function MessageList({
 }: {
   messages: MessageSummary[];
   total: number;
+  page: number;
+  pageSize: number;
   filter: MessageListFilter;
   sort: MessageListSort;
   loading: boolean;
   selectedUid: number | null;
+  onPageChange: (page: number) => void;
   onFilterChange: (filter: MessageListFilter) => void;
   onSortChange: (sort: MessageListSort) => void;
   onSelect: (uid: number) => void;
@@ -181,6 +318,7 @@ export function MessageList({
           ))
         )}
       </ScrollArea>
+      <PageFooter page={page} total={total} pageSize={pageSize} onPageChange={onPageChange} />
     </Stack>
   );
 }

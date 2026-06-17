@@ -29,12 +29,14 @@ export function useMessages(
 export function useSearch(
   folder: string,
   query: string,
+  page: number,
+  pageSize: number,
   filter: MessageListFilter,
   sort: MessageListSort,
 ) {
   return useQuery({
-    queryKey: ['search', folder, query, filter, sort],
-    queryFn: () => mail.searchMessages(folder, query, filter, sort),
+    queryKey: ['search', folder, query, page, pageSize, filter, sort],
+    queryFn: () => mail.searchMessages(folder, query, page, pageSize, filter, sort),
     enabled: query.trim().length > 0,
   });
 }

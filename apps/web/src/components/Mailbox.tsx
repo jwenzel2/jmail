@@ -10,10 +10,9 @@ import { FolderTree } from './FolderTree';
 import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
 import { useFolders, useMessage, useMessageAction, useMessages, useSearch } from '../hooks/useMail';
+import { useMailPageSize } from '../hooks/useMailSettings';
 import { formatAddressFull, formatFullDate } from '../utils/format';
 import { openMessagePopup } from '../utils/windows';
-
-const PAGE_SIZE = 50;
 
 function quote(m: MessageDetail): string {
   const intro = `On ${formatFullDate(m.date)}, ${m.from.map(formatAddressFull).join(', ')} wrote:`;
@@ -53,15 +52,17 @@ export function Mailbox() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<MessageListFilter>('all');
   const [sort, setSort] = useState<MessageListSort>('dateDesc');
+  const [page, setPage] = useState(1);
   const [compose, setCompose] = useState<{ opened: boolean; draft: ComposeDraft }>({
     opened: false,
     draft: EMPTY_DRAFT,
   });
 
+  const [pageSize] = useMailPageSize();
   const qc = useQueryClient();
   const folders = useFolders();
-  const browse = useMessages(folder, 1, PAGE_SIZE, filter, sort);
-  const searching = useSearch(folder, search, filter, sort);
+  const browse = useMessages(folder, page, pageSize, filter, sort);
+  const searching = useSearch(folder, search, page, pageSize, filter, sort);
   const active = search.trim() ? searching : browse;
   const message = useMessage(selectedUid !== null ? folder : null, selectedUid);
   const action = useMessageAction();
@@ -82,9 +83,21 @@ export function Mailbox() {
     // Only re-run when the opened message identity changes.
   }, [message.data?.uid, message.data?.folder, qc, message.data]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  useEffect(() => {
+    const total = active.data?.total;
+    if (total === undefined) return;
+    const maxPage = Math.max(1, Math.ceil(total / pageSize));
+    if (page > maxPage) setPage(maxPage);
+  }, [active.data?.total, page, pageSize]);
+
   const selectFolder = (path: string) => {
     setFolder(path);
     setSelectedUid(null);
+    setPage(1);
     setSearch('');
     setSearchInput('');
   };
@@ -112,11 +125,13 @@ export function Mailbox() {
   const selectFilter = (next: MessageListFilter) => {
     setFilter(next);
     setSelectedUid(null);
+    setPage(1);
   };
 
   const selectSort = (next: MessageListSort) => {
     setSort(next);
     setSelectedUid(null);
+    setPage(1);
   };
 
   return (
@@ -140,6 +155,7 @@ export function Mailbox() {
             e.preventDefault();
             setSearch(searchInput);
             setSelectedUid(null);
+            setPage(1);
           }}
           style={{ flex: 1, maxWidth: 360 }}
         >
@@ -168,10 +184,13 @@ export function Mailbox() {
           <MessageList
             messages={active.data?.messages ?? []}
             total={active.data?.total ?? 0}
+            page={page}
+            pageSize={pageSize}
             filter={filter}
             sort={sort}
             loading={active.isLoading || active.isFetching}
             selectedUid={selectedUid}
+            onPageChange={setPage}
             onFilterChange={selectFilter}
             onSortChange={selectSort}
             onSelect={setSelectedUid}
