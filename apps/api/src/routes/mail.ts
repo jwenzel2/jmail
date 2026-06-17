@@ -1,4 +1,9 @@
-import { messageActionSchema, sendMessageSchema } from '@jmail/shared';
+import {
+  messageActionSchema,
+  messageListFilterSchema,
+  messageListSortSchema,
+  sendMessageSchema,
+} from '@jmail/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../plugins/guards.js';
@@ -17,6 +22,8 @@ const listQuerySchema = z.object({
   folder: z.string().default('INBOX'),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(200).default(50),
+  filter: messageListFilterSchema.default('all'),
+  sort: messageListSortSchema.default('dateDesc'),
 });
 
 const messageParamsSchema = z.object({
@@ -27,6 +34,8 @@ const messageParamsSchema = z.object({
 const searchQuerySchema = z.object({
   folder: z.string().default('INBOX'),
   q: z.string().min(1),
+  filter: messageListFilterSchema.default('all'),
+  sort: messageListSortSchema.default('dateDesc'),
 });
 
 const attachmentParamsSchema = messageParamsSchema.extend({
@@ -52,14 +61,14 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/mail/messages', async (req) => {
     const { sid, email } = authed(req);
-    const { folder, page, pageSize } = listQuerySchema.parse(req.query);
-    return listMessages(sid, email, folder, page, pageSize);
+    const { folder, page, pageSize, filter, sort } = listQuerySchema.parse(req.query);
+    return listMessages(sid, email, folder, page, pageSize, filter, sort);
   });
 
   app.get('/api/mail/search', async (req) => {
     const { sid, email } = authed(req);
-    const { folder, q } = searchQuerySchema.parse(req.query);
-    return searchMessages(sid, email, folder, q);
+    const { folder, q, filter, sort } = searchQuerySchema.parse(req.query);
+    return searchMessages(sid, email, folder, q, filter, sort);
   });
 
   app.get('/api/mail/message/:folder/:uid', async (req, reply) => {

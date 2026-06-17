@@ -52,6 +52,30 @@ export const messageSummarySchema = z.object({
 });
 export type MessageSummary = z.infer<typeof messageSummarySchema>;
 
+export const messageListFilterSchema = z.enum([
+  'all',
+  'unread',
+  'read',
+  'flagged',
+  'unflagged',
+  'answered',
+  'unanswered',
+  'hasAttachments',
+]);
+export type MessageListFilter = z.infer<typeof messageListFilterSchema>;
+
+export const messageListSortSchema = z.enum([
+  'dateDesc',
+  'dateAsc',
+  'fromAsc',
+  'fromDesc',
+  'subjectAsc',
+  'subjectDesc',
+  'sizeDesc',
+  'sizeAsc',
+]);
+export type MessageListSort = z.infer<typeof messageListSortSchema>;
+
 export const messageListResponseSchema = z.object({
   folder: z.string(),
   total: z.number().int().nonnegative(),

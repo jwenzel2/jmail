@@ -3,7 +3,9 @@ import type {
   MailAddress,
   MessageAction,
   MessageDetail,
+  MessageListFilter,
   MessageListResponse,
+  MessageListSort,
   MessageSummary,
 } from '@jmail/shared';
 import type { FetchMessageObject, MessageStructureObject } from 'imapflow';
@@ -74,13 +76,107 @@ function toSummary(msg: FetchMessageObject): MessageSummary {
   };
 }
 
-/** Lists a page of messages (newest first). */
+const summaryFetchQuery = {
+  uid: true,
+  envelope: true,
+  flags: true,
+  size: true,
+  internalDate: true,
+  bodyStructure: true,
+} as const;
+
+function firstAddress(summary: MessageSummary): string {
+  const [addr] = summary.from;
+  return (addr?.name || addr?.address || '').toLocaleLowerCase();
+}
+
+function normalizedSubject(summary: MessageSummary): string {
+  return summary.subject.toLocaleLowerCase();
+}
+
+function compareDate(a: MessageSummary, b: MessageSummary): number {
+  return Date.parse(a.date) - Date.parse(b.date) || a.uid - b.uid;
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
+}
+
+export function applyMessageListOptions(
+  messages: MessageSummary[],
+  filter: MessageListFilter,
+  sort: MessageListSort,
+): MessageSummary[] {
+  const filtered = messages.filter((message) => {
+    switch (filter) {
+      case 'all':
+        return true;
+      case 'unread':
+        return !message.seen;
+      case 'read':
+        return message.seen;
+      case 'flagged':
+        return message.flagged;
+      case 'unflagged':
+        return !message.flagged;
+      case 'answered':
+        return message.answered;
+      case 'unanswered':
+        return !message.answered;
+      case 'hasAttachments':
+        return message.hasAttachments;
+    }
+  });
+
+  return [...filtered].sort((a, b) => {
+    switch (sort) {
+      case 'dateDesc':
+        return compareDate(b, a);
+      case 'dateAsc':
+        return compareDate(a, b);
+      case 'fromAsc':
+        return compareText(firstAddress(a), firstAddress(b)) || compareDate(b, a);
+      case 'fromDesc':
+        return compareText(firstAddress(b), firstAddress(a)) || compareDate(b, a);
+      case 'subjectAsc':
+        return compareText(normalizedSubject(a), normalizedSubject(b)) || compareDate(b, a);
+      case 'subjectDesc':
+        return compareText(normalizedSubject(b), normalizedSubject(a)) || compareDate(b, a);
+      case 'sizeDesc':
+        return b.size - a.size || compareDate(b, a);
+      case 'sizeAsc':
+        return a.size - b.size || compareDate(b, a);
+      default:
+        return 0;
+    }
+  });
+}
+
+function pageMessages(
+  folder: string,
+  page: number,
+  pageSize: number,
+  messages: MessageSummary[],
+): MessageListResponse {
+  const start = (page - 1) * pageSize;
+  return {
+    folder,
+    total: messages.length,
+    page,
+    pageSize,
+    messages: messages.slice(start, start + pageSize),
+  };
+}
+
+/** Lists a filtered and sorted page of messages. */
 export async function listMessages(
   sid: string,
   email: string,
   folder: string,
   page: number,
   pageSize: number,
+  filter: MessageListFilter,
+  sort: MessageListSort,
 ): Promise<MessageListResponse> {
   return withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(folder);
@@ -89,23 +185,11 @@ export async function listMessages(
       const total = mbox ? mbox.exists : 0;
       if (total === 0) return { folder, total: 0, page, pageSize, messages: [] };
 
-      const end = total - (page - 1) * pageSize;
-      if (end < 1) return { folder, total, page, pageSize, messages: [] };
-      const start = Math.max(1, end - pageSize + 1);
-
       const messages: MessageSummary[] = [];
-      for await (const msg of client.fetch(`${start}:${end}`, {
-        uid: true,
-        envelope: true,
-        flags: true,
-        size: true,
-        internalDate: true,
-        bodyStructure: true,
-      })) {
+      for await (const msg of client.fetch('1:*', summaryFetchQuery)) {
         messages.push(toSummary(msg));
       }
-      messages.sort((a, b) => b.uid - a.uid);
-      return { folder, total, page, pageSize, messages };
+      return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
     } finally {
       lock.release();
     }
@@ -288,6 +372,8 @@ export async function searchMessages(
   email: string,
   folder: string,
   query: string,
+  filter: MessageListFilter,
+  sort: MessageListSort,
   limit = 100,
 ): Promise<MessageListResponse> {
   return withImap(sid, email, async (client) => {
@@ -297,26 +383,14 @@ export async function searchMessages(
         { or: [{ subject: query }, { from: query }, { to: query }, { body: query }] },
         { uid: true },
       );
-      const uids = (found || []).slice(-limit).reverse();
+      const uids = found || [];
       if (uids.length === 0) return { folder, total: 0, page: 1, pageSize: limit, messages: [] };
 
       const messages: MessageSummary[] = [];
-      for await (const msg of client.fetch(
-        uids,
-        {
-          uid: true,
-          envelope: true,
-          flags: true,
-          size: true,
-          internalDate: true,
-          bodyStructure: true,
-        },
-        { uid: true },
-      )) {
+      for await (const msg of client.fetch(uids, summaryFetchQuery, { uid: true })) {
         messages.push(toSummary(msg));
       }
-      messages.sort((a, b) => b.uid - a.uid);
-      return { folder, total: messages.length, page: 1, pageSize: limit, messages };
+      return pageMessages(folder, 1, limit, applyMessageListOptions(messages, filter, sort));
     } finally {
       lock.release();
     }

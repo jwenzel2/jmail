@@ -1,4 +1,4 @@
-import type { MessageDetail } from '@jmail/shared';
+import type { MessageDetail, MessageListFilter, MessageListSort } from '@jmail/shared';
 import { Box, Button, Center, Flex, Group, Loader, Text, TextInput } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { IconPencil, IconSearch } from '@tabler/icons-react';
@@ -51,6 +51,8 @@ export function Mailbox() {
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<MessageListFilter>('all');
+  const [sort, setSort] = useState<MessageListSort>('dateDesc');
   const [compose, setCompose] = useState<{ opened: boolean; draft: ComposeDraft }>({
     opened: false,
     draft: EMPTY_DRAFT,
@@ -58,8 +60,8 @@ export function Mailbox() {
 
   const qc = useQueryClient();
   const folders = useFolders();
-  const browse = useMessages(folder, 1, PAGE_SIZE);
-  const searching = useSearch(folder, search);
+  const browse = useMessages(folder, 1, PAGE_SIZE, filter, sort);
+  const searching = useSearch(folder, search, filter, sort);
   const active = search.trim() ? searching : browse;
   const message = useMessage(selectedUid !== null ? folder : null, selectedUid);
   const action = useMessageAction();
@@ -106,6 +108,16 @@ export function Mailbox() {
 
   const openCompose = (draft: ComposeDraft) => setCompose({ opened: true, draft });
   const openMessageWindow = (uid: number) => openMessagePopup(messageWindowUrl(folder, uid));
+
+  const selectFilter = (next: MessageListFilter) => {
+    setFilter(next);
+    setSelectedUid(null);
+  };
+
+  const selectSort = (next: MessageListSort) => {
+    setSort(next);
+    setSelectedUid(null);
+  };
 
   return (
     <Flex direction="column" h="calc(100vh - 56px)">
@@ -156,8 +168,12 @@ export function Mailbox() {
           <MessageList
             messages={active.data?.messages ?? []}
             total={active.data?.total ?? 0}
+            filter={filter}
+            sort={sort}
             loading={active.isLoading || active.isFetching}
             selectedUid={selectedUid}
+            onFilterChange={selectFilter}
+            onSortChange={selectSort}
             onSelect={setSelectedUid}
             onOpen={openMessageWindow}
           />

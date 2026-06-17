@@ -1,4 +1,10 @@
-import type { MailFolder, MessageAction, MessageListResponse } from '@jmail/shared';
+import type {
+  MailFolder,
+  MessageAction,
+  MessageListFilter,
+  MessageListResponse,
+  MessageListSort,
+} from '@jmail/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as mail from '../api/mail';
 
@@ -6,18 +12,29 @@ export function useFolders() {
   return useQuery({ queryKey: ['folders'], queryFn: mail.getFolders });
 }
 
-export function useMessages(folder: string, page: number, pageSize: number) {
+export function useMessages(
+  folder: string,
+  page: number,
+  pageSize: number,
+  filter: MessageListFilter,
+  sort: MessageListSort,
+) {
   return useQuery({
-    queryKey: ['messages', folder, page, pageSize],
-    queryFn: () => mail.getMessages(folder, page, pageSize),
+    queryKey: ['messages', folder, page, pageSize, filter, sort],
+    queryFn: () => mail.getMessages(folder, page, pageSize, filter, sort),
     placeholderData: (prev) => prev,
   });
 }
 
-export function useSearch(folder: string, query: string) {
+export function useSearch(
+  folder: string,
+  query: string,
+  filter: MessageListFilter,
+  sort: MessageListSort,
+) {
   return useQuery({
-    queryKey: ['search', folder, query],
-    queryFn: () => mail.searchMessages(folder, query),
+    queryKey: ['search', folder, query, filter, sort],
+    queryFn: () => mail.searchMessages(folder, query, filter, sort),
     enabled: query.trim().length > 0,
   });
 }
