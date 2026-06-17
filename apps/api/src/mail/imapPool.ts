@@ -3,12 +3,13 @@ import { config } from '../config.js';
 import { getValidAccessToken } from '../services/tokens.js';
 
 /**
- * Per-session IMAP connection pool. A single authenticated connection is kept
- * per session and reused; operations on it are serialized (IMAP is a stateful,
- * single-command-at-a-time protocol). Idle connections are swept periodically.
+ * Two per-session IMAP connection pools:
+ *   pool       — for all interactive operations (list, fetch, actions)
+ *   searchPool — exclusively for search queries
  *
- * Once authenticated, an IMAP connection stays valid even after the OAuth
- * access token expires, so we only need a fresh token when (re)connecting.
+ * Keeping them separate means a slow IMAP SEARCH never queues behind or
+ * blocks pagination, message opens, or mutations on the main connection.
+ * Each pool serializes its own operations via a per-entry mutex.
  */
 interface Pooled {
   client: ImapFlow;
@@ -18,6 +19,7 @@ interface Pooled {
 }
 
 const pool = new Map<string, Pooled>();
+const searchPool = new Map<string, Pooled>();
 const IDLE_MS = 5 * 60 * 1000;
 
 function imapConfigured(): boolean {
@@ -33,27 +35,22 @@ async function connect(email: string, accessToken: string): Promise<ImapFlow> {
     tls: { rejectUnauthorized: config.IMAP_TLS_REJECT_UNAUTHORIZED },
     logger: false,
   });
-  // ImapFlow can emit an error while connect() is still pending. Keep that
-  // event from becoming an uncaught EventEmitter error; connect() still rejects
-  // and the request receives the authentication/connection failure.
+  // Absorb connection-level errors so they don't become uncaught EventEmitter
+  // errors; connect() / the pending operation still rejects with the cause.
   client.on('error', () => undefined);
   await client.connect();
   return client;
 }
 
-async function acquire(sid: string, email: string): Promise<Pooled> {
-  const existing = pool.get(sid);
+async function acquire(poolMap: Map<string, Pooled>, sid: string, email: string): Promise<Pooled> {
+  const existing = poolMap.get(sid);
   if (existing && existing.client.usable) {
     existing.lastUsed = Date.now();
     return existing;
   }
   if (existing) {
-    try {
-      existing.client.close();
-    } catch {
-      /* ignore */
-    }
-    pool.delete(sid);
+    try { existing.client.close(); } catch { /* ignore */ }
+    poolMap.delete(sid);
   }
   if (!imapConfigured()) throw new Error('imap_not_configured');
   const token = await getValidAccessToken(sid);
@@ -62,59 +59,69 @@ async function acquire(sid: string, email: string): Promise<Pooled> {
   const client = await connect(email, token);
   const entry: Pooled = { client, email, mutex: Promise.resolve(), lastUsed: Date.now() };
   client.on('close', () => {
-    if (pool.get(sid)?.client === client) pool.delete(sid);
+    if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
   });
-  // ImapFlow emits 'error' on connection problems; drop the dead entry.
   client.on('error', () => {
-    if (pool.get(sid)?.client === client) pool.delete(sid);
+    if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
   });
-  pool.set(sid, entry);
+  poolMap.set(sid, entry);
   return entry;
 }
 
-/**
- * Runs `fn` with a connected IMAP client for the session, serializing against
- * any other in-flight operation on the same connection.
- */
-export async function withImap<T>(
+async function withPool<T>(
+  poolMap: Map<string, Pooled>,
   sid: string,
   email: string,
   fn: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
-  const entry = await acquire(sid, email);
+  const entry = await acquire(poolMap, sid, email);
   const run = entry.mutex.then(() => {
     entry.lastUsed = Date.now();
     return fn(entry.client);
   });
-  // Keep the chain alive regardless of this op's outcome; caller still gets the result/error.
-  entry.mutex = run.then(
-    () => undefined,
-    () => undefined,
-  );
+  entry.mutex = run.then(() => undefined, () => undefined);
   return run;
 }
 
-/** Closes a session's IMAP connection (e.g. on logout). */
+/** Runs fn with the main IMAP connection for the session (serialized). */
+export function withImap<T>(
+  sid: string,
+  email: string,
+  fn: (client: ImapFlow) => Promise<T>,
+): Promise<T> {
+  return withPool(pool, sid, email, fn);
+}
+
+/** Runs fn with the dedicated search IMAP connection for the session. */
+export function withSearchImap<T>(
+  sid: string,
+  email: string,
+  fn: (client: ImapFlow) => Promise<T>,
+): Promise<T> {
+  return withPool(searchPool, sid, email, fn);
+}
+
+/** Closes both IMAP connections for a session (e.g. on logout). */
 export async function closeImap(sid: string): Promise<void> {
-  const entry = pool.get(sid);
-  if (!entry) return;
-  pool.delete(sid);
-  try {
-    await entry.client.logout();
-  } catch {
-    entry.client.close();
+  for (const poolMap of [pool, searchPool]) {
+    const entry = poolMap.get(sid);
+    if (!entry) continue;
+    poolMap.delete(sid);
+    try {
+      await entry.client.logout();
+    } catch {
+      entry.client.close();
+    }
   }
 }
 
 const sweeper = setInterval(() => {
   const now = Date.now();
-  for (const [sid, entry] of pool) {
-    if (now - entry.lastUsed > IDLE_MS) {
-      pool.delete(sid);
-      try {
-        entry.client.close();
-      } catch {
-        /* ignore */
+  for (const poolMap of [pool, searchPool]) {
+    for (const [sid, entry] of poolMap) {
+      if (now - entry.lastUsed > IDLE_MS) {
+        poolMap.delete(sid);
+        try { entry.client.close(); } catch { /* ignore */ }
       }
     }
   }

@@ -11,7 +11,7 @@ import type {
 import type { FetchMessageObject, FetchQueryObject, ImapFlow, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { getFolderByRole } from './folders.js';
-import { withImap } from './imapPool.js';
+import { withImap, withSearchImap } from './imapPool.js';
 import { sanitizeEmailHtml } from './sanitize.js';
 
 type AddressLike = { name?: string; address?: string };
@@ -516,7 +516,7 @@ export async function applyAction(
   invalidateFolderCache(sid, email);
 }
 
-/** Full-text-ish search across common headers and body; returns newest matches. */
+/** Searches messages by subject, sender, and recipient. */
 export async function searchMessages(
   sid: string,
   email: string,
@@ -527,26 +527,49 @@ export async function searchMessages(
   filter: MessageListFilter,
   sort: MessageListSort,
 ): Promise<MessageListResponse> {
-  return withImap(sid, email, async (client) => {
+  const q = query.trim().toLowerCase();
+
+  // When the folder is cached, search entirely in memory — no IMAP round-trip.
+  // This is the common path after any page load and is effectively instant.
+  const cached = readCache(sid, email, folder, 'all');
+  if (cached) {
+    const matched = cached.filter(
+      (m) =>
+        m.subject.toLowerCase().includes(q) ||
+        m.from.some(
+          (a) =>
+            (a.name ?? '').toLowerCase().includes(q) ||
+            a.address.toLowerCase().includes(q),
+        ) ||
+        m.to.some(
+          (a) =>
+            (a.name ?? '').toLowerCase().includes(q) ||
+            a.address.toLowerCase().includes(q),
+        ),
+    );
+    return pageMessages(folder, page, pageSize, applyMessageListOptions(matched, filter, sort));
+  }
+
+  // Cold cache: run a header-only IMAP SEARCH on the dedicated search
+  // connection so the main connection stays free for other operations.
+  return withSearchImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const found = await client.search(
-        { or: [{ subject: query }, { from: query }, { to: query }, { body: query }] },
+        { or: [{ subject: query }, { from: query }, { to: query }] },
         { uid: true },
       );
       const uids = found || [];
       if (uids.length === 0) return { folder, total: 0, page, pageSize, messages: [] };
 
-      // If the full folder is cached, intersect the IMAP-matched UIDs with the
-      // cache to serve the result without any additional IMAP fetches.
-      const cached = readCache(sid, email, folder, 'all');
-      if (cached) {
+      // Cache may have been populated on the main connection while we waited.
+      const nowCached = readCache(sid, email, folder, 'all');
+      if (nowCached) {
         const uidSet = new Set(uids);
-        const matched = cached.filter((m) => uidSet.has(m.uid));
+        const matched = nowCached.filter((m) => uidSet.has(m.uid));
         return pageMessages(folder, page, pageSize, applyMessageListOptions(matched, filter, sort));
       }
 
-      // No cache: fetch full data for all matching UIDs.
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch(uids, summaryFetchQuery, { uid: true })) {
         messages.push(toSummary(msg));
