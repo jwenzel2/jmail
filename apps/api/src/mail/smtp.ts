@@ -5,6 +5,7 @@ import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { config } from '../config.js';
 import { getValidAccessToken } from '../services/tokens.js';
 import { getFolderByRole } from './folders.js';
+import { invalidateFolderCache } from './messages.js';
 import { withImap } from './imapPool.js';
 
 function buildRaw(options: Mail.Options): Promise<Buffer> {
@@ -85,5 +86,6 @@ export async function sendMessage(
     /* ignore */
   }
 
+  invalidateFolderCache(sid, user.email);
   return { messageId: info.messageId };
 }

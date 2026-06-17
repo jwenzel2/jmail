@@ -38,6 +38,7 @@ export function useSearch(
     queryKey: ['search', folder, query, page, pageSize, filter, sort],
     queryFn: () => mail.searchMessages(folder, query, page, pageSize, filter, sort),
     enabled: query.trim().length > 0,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -49,28 +50,29 @@ export function useMessage(folder: string | null, uid: number | null) {
   });
 }
 
-/** Invalidates the views affected by a mailbox mutation. */
-function useMailInvalidation() {
-  const qc = useQueryClient();
-  return () => {
-    void qc.invalidateQueries({ queryKey: ['messages'] });
-    void qc.invalidateQueries({ queryKey: ['folders'] });
-  };
-}
-
 export function useMessageAction() {
-  const invalidate = useMailInvalidation();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (action: MessageAction) => mail.applyAction(action),
-    onSuccess: invalidate,
+    onSuccess: (_, action) => {
+      void qc.invalidateQueries({ queryKey: ['messages', action.folder] });
+      if (action.targetFolder) {
+        void qc.invalidateQueries({ queryKey: ['messages', action.targetFolder] });
+      }
+      void qc.invalidateQueries({ queryKey: ['search', action.folder] });
+      void qc.invalidateQueries({ queryKey: ['folders'] });
+    },
   });
 }
 
 export function useSendMessage() {
-  const invalidate = useMailInvalidation();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: mail.sendMessage,
-    onSuccess: invalidate,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['messages'] });
+      void qc.invalidateQueries({ queryKey: ['folders'] });
+    },
   });
 }
 

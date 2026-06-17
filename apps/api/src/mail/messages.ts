@@ -8,7 +8,7 @@ import type {
   MessageListSort,
   MessageSummary,
 } from '@jmail/shared';
-import type { FetchMessageObject, FetchQueryObject, MessageStructureObject } from 'imapflow';
+import type { FetchMessageObject, FetchQueryObject, ImapFlow, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { getFolderByRole } from './folders.js';
 import { withImap } from './imapPool.js';
@@ -17,7 +17,7 @@ import { sanitizeEmailHtml } from './sanitize.js';
 type AddressLike = { name?: string; address?: string };
 
 function mapAddrs(addrs: AddressLike[] | undefined): MailAddress[] {
-  return (addrs ?? []).map((a) => ({ name: a.name ?? null, address: a.address ?? '' }));
+  return (addrs || []).map((a) => ({ name: a.name ?? null, address: a.address ?? '' }));
 }
 
 /** Walks the BODYSTRUCTURE collecting downloadable attachment/inline parts. */
@@ -205,6 +205,82 @@ function pageMessages(
   };
 }
 
+// ── Folder message cache ─────────────────────────────────────────────────────
+//
+// Caches MessageSummary arrays per session/folder so pagination, filter
+// changes, and re-sorts skip full IMAP scans after the first load.
+//
+// 'all' bucket   — complete folder listing; serves any filter/sort combination.
+// filter bucket  — IMAP SEARCH result for a specific flag filter; only used
+//                  when the full 'all' cache hasn't been populated yet.
+//
+// Invalidated on any mutation and expires after CACHE_TTL_MS.
+
+interface CachedMessages {
+  messages: MessageSummary[];
+  ts: number;
+}
+
+const messageCache = new Map<string, CachedMessages>();
+const CACHE_TTL_MS = 60_000;
+
+function buildCacheKey(sid: string, email: string, folder: string, bucket: string): string {
+  return `${sid}\x00${email}\x00${folder}\x00${bucket}`;
+}
+
+function readCache(
+  sid: string,
+  email: string,
+  folder: string,
+  bucket: string,
+): MessageSummary[] | null {
+  const key = buildCacheKey(sid, email, folder, bucket);
+  const entry = messageCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    messageCache.delete(key);
+    return null;
+  }
+  return entry.messages;
+}
+
+function writeCache(
+  sid: string,
+  email: string,
+  folder: string,
+  bucket: string,
+  messages: MessageSummary[],
+): void {
+  messageCache.set(buildCacheKey(sid, email, folder, bucket), { messages, ts: Date.now() });
+}
+
+/** Clears all cached message lists for a session. Call after any mailbox mutation. */
+export function invalidateFolderCache(sid: string, email: string): void {
+  const prefix = `${sid}\x00${email}\x00`;
+  for (const key of messageCache.keys()) {
+    if (key.startsWith(prefix)) messageCache.delete(key);
+  }
+}
+
+/**
+ * Returns matching UIDs via IMAP SEARCH for flag-based filters, avoiding a
+ * full mailbox scan. Returns null for filters with no direct IMAP equivalent.
+ */
+async function searchByFlag(
+  client: ImapFlow,
+  filter: MessageListFilter,
+): Promise<number[] | null> {
+  switch (filter) {
+    case 'unread':     return (await client.search({ seen: false }, { uid: true })) || [];
+    case 'read':       return (await client.search({ seen: true }, { uid: true })) || [];
+    case 'flagged':    return (await client.search({ flagged: true }, { uid: true })) || [];
+    case 'unflagged':  return (await client.search({ flagged: false }, { uid: true })) || [];
+    case 'answered':   return (await client.search({ answered: true }, { uid: true })) || [];
+    case 'unanswered': return (await client.search({ answered: false }, { uid: true })) || [];
+    default:           return null;
+  }
+}
+
 /** Lists a filtered and sorted page of messages. */
 export async function listMessages(
   sid: string,
@@ -215,17 +291,53 @@ export async function listMessages(
   filter: MessageListFilter,
   sort: MessageListSort,
 ): Promise<MessageListResponse> {
+  // Full-folder cache serves any filter/sort without touching IMAP.
+  const fullCache = readCache(sid, email, folder, 'all');
+  if (fullCache) {
+    return pageMessages(folder, page, pageSize, applyMessageListOptions(fullCache, filter, sort));
+  }
+
+  // Filter-specific cache populated by a prior IMAP SEARCH run (flag filters only).
+  if (filter !== 'all' && filter !== 'hasAttachments') {
+    const filterCache = readCache(sid, email, folder, filter);
+    if (filterCache) {
+      return pageMessages(folder, page, pageSize, applyMessageListOptions(filterCache, filter, sort));
+    }
+  }
+
   return withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const mbox = client.mailbox;
-      const total = mbox ? mbox.exists : 0;
-      if (total === 0) return { folder, total: 0, page, pageSize, messages: [] };
+      if (!mbox || mbox.exists === 0) {
+        writeCache(sid, email, folder, 'all', []);
+        return { folder, total: 0, page, pageSize, messages: [] };
+      }
 
+      // Flag-based filters: IMAP SEARCH pre-filters UIDs so we only fetch the
+      // matching subset instead of scanning the whole mailbox. The result is
+      // cached under the filter key so subsequent pages skip the SEARCH too.
+      const flagUids = await searchByFlag(client, filter);
+      if (flagUids !== null) {
+        if (flagUids.length === 0) {
+          writeCache(sid, email, folder, filter, []);
+          return { folder, total: 0, page, pageSize, messages: [] };
+        }
+        const messages: MessageSummary[] = [];
+        for await (const msg of client.fetch(flagUids, summaryFetchQuery, { uid: true })) {
+          messages.push(toSummary(msg));
+        }
+        writeCache(sid, email, folder, filter, messages);
+        return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
+      }
+
+      // Full scan for 'all' and 'hasAttachments'. Cached under 'all' so any
+      // future filter or sort is served from memory.
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch('1:*', summaryFetchQuery)) {
         messages.push(toSummary(msg));
       }
+      writeCache(sid, email, folder, 'all', messages);
       return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
     } finally {
       lock.release();
@@ -401,6 +513,7 @@ export async function applyAction(
       lock.release();
     }
   });
+  invalidateFolderCache(sid, email);
 }
 
 /** Full-text-ish search across common headers and body; returns newest matches. */
@@ -424,6 +537,16 @@ export async function searchMessages(
       const uids = found || [];
       if (uids.length === 0) return { folder, total: 0, page, pageSize, messages: [] };
 
+      // If the full folder is cached, intersect the IMAP-matched UIDs with the
+      // cache to serve the result without any additional IMAP fetches.
+      const cached = readCache(sid, email, folder, 'all');
+      if (cached) {
+        const uidSet = new Set(uids);
+        const matched = cached.filter((m) => uidSet.has(m.uid));
+        return pageMessages(folder, page, pageSize, applyMessageListOptions(matched, filter, sort));
+      }
+
+      // No cache: fetch full data for all matching UIDs.
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch(uids, summaryFetchQuery, { uid: true })) {
         messages.push(toSummary(msg));
