@@ -8,7 +8,7 @@ import type {
   MessageListSort,
   MessageSummary,
 } from '@jmail/shared';
-import type { FetchMessageObject, MessageStructureObject } from 'imapflow';
+import type { FetchMessageObject, FetchQueryObject, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { getFolderByRole } from './folders.js';
 import { withImap } from './imapPool.js';
@@ -51,10 +51,35 @@ function hasAttachments(node: MessageStructureObject | undefined): boolean {
   return collectAttachments(node).some((a) => !a.inline);
 }
 
-function messageHeaderDate(value: Date | string | undefined): Date {
+export function parseMessageHeaderDate(value: Date | string | undefined): Date {
   if (!value) return new Date(0);
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
+}
+
+function headerValue(headers: Buffer | undefined, name: string): string | undefined {
+  if (!headers) return undefined;
+  const target = name.toLocaleLowerCase();
+  let active: string | null = null;
+
+  for (const line of headers.toString('utf8').split(/\r?\n/)) {
+    if (/^\s/.test(line) && active !== null) {
+      active += ` ${line.trim()}`;
+      continue;
+    }
+
+    const separator = line.indexOf(':');
+    if (separator === -1) {
+      active = null;
+      continue;
+    }
+
+    const key = line.slice(0, separator).trim().toLocaleLowerCase();
+    active = key === target ? line.slice(separator + 1).trim() : null;
+    if (active) return active;
+  }
+
+  return undefined;
 }
 
 /** Returns the original RFC 5322 header block without the message body. */
@@ -66,7 +91,7 @@ export function extractRawHeaders(source: Buffer): string {
 
 function toSummary(msg: FetchMessageObject): MessageSummary {
   const env = msg.envelope;
-  const date = messageHeaderDate(env?.date);
+  const date = parseMessageHeaderDate(headerValue(msg.headers, 'date'));
   return {
     uid: msg.uid,
     subject: env?.subject ?? '',
@@ -82,14 +107,14 @@ function toSummary(msg: FetchMessageObject): MessageSummary {
   };
 }
 
-const summaryFetchQuery = {
+const summaryFetchQuery: FetchQueryObject = {
   uid: true,
   envelope: true,
   flags: true,
   size: true,
-  internalDate: true,
   bodyStructure: true,
-} as const;
+  headers: ['date'],
+};
 
 function firstAddress(summary: MessageSummary): string {
   const [addr] = summary.from;
@@ -242,7 +267,7 @@ export async function getMessage(
           ? sanitizeEmailHtml(parsed.textAsHtml)
           : null;
       const env = msg.envelope;
-      const date = new Date(env?.date ?? msg.internalDate ?? Date.now());
+      const date = parseMessageHeaderDate(parsed.date);
 
       return {
         uid: msg.uid,

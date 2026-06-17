@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MessageSummary } from '@jmail/shared';
-import { applyMessageListOptions, extractRawHeaders } from './messages.js';
+import { applyMessageListOptions, extractRawHeaders, parseMessageHeaderDate } from './messages.js';
 
 describe('extractRawHeaders', () => {
   it('extracts CRLF-separated headers', () => {
@@ -13,6 +13,19 @@ describe('extractRawHeaders', () => {
     expect(extractRawHeaders(Buffer.from('From: sender@example.com\nSubject: Hello\n\nBody'))).toBe(
       'From: sender@example.com\nSubject: Hello',
     );
+  });
+});
+
+describe('parseMessageHeaderDate', () => {
+  it('parses RFC 5322 Date header values', () => {
+    expect(parseMessageHeaderDate('Tue, 17 Jun 2025 09:30:00 -0500').toISOString()).toBe(
+      '2025-06-17T14:30:00.000Z',
+    );
+  });
+
+  it('normalizes invalid or missing message dates to the beginning of time', () => {
+    expect(parseMessageHeaderDate(undefined).toISOString()).toBe('1970-01-01T00:00:00.000Z');
+    expect(parseMessageHeaderDate('not a date').toISOString()).toBe('1970-01-01T00:00:00.000Z');
   });
 });
 
@@ -72,5 +85,18 @@ describe('applyMessageListOptions', () => {
     expect(applyMessageListOptions(messages, 'all', 'sizeDesc').map((m) => m.uid)).toEqual([
       2, 3, 1,
     ]);
+  });
+
+  it('keeps messages without valid Date headers at the end of newest-first sorting', () => {
+    expect(
+      applyMessageListOptions(
+        [
+          ...messages,
+          { ...baseSummary, uid: 4, subject: 'No Date', date: '1970-01-01T00:00:00.000Z' },
+        ],
+        'all',
+        'dateDesc',
+      ).map((m) => m.uid),
+    ).toEqual([2, 3, 1, 4]);
   });
 });
