@@ -9,6 +9,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import * as mail from '../api/mail';
 
+/** Opens a Server-Sent Events connection and invalidates message/folder caches on new mail. */
+export function useMailEvents() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const es = new EventSource('/api/mail/events', { withCredentials: true });
+    es.addEventListener('message', (event: MessageEvent<string>) => {
+      try {
+        const data = JSON.parse(event.data) as { type: string; folder?: string };
+        if (data.type === 'mail') {
+          void qc.invalidateQueries({ queryKey: ['messages', data.folder ?? 'INBOX'] });
+          void qc.invalidateQueries({ queryKey: ['folders'] });
+        }
+      } catch { /* ignore malformed events */ }
+    });
+    return () => es.close();
+  }, [qc]);
+}
+
 export function useFolders() {
   return useQuery({ queryKey: ['folders'], queryFn: mail.getFolders });
 }

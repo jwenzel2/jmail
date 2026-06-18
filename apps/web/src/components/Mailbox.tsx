@@ -9,7 +9,7 @@ import { ComposeModal, EMPTY_DRAFT, type ComposeDraft } from './ComposeModal';
 import { FolderTree } from './FolderTree';
 import { MessageList } from './MessageList';
 import { MessageView } from './MessageView';
-import { useFolders, useMessage, useMessageAction, useMessages, useSearch } from '../hooks/useMail';
+import { useFolders, useMailEvents, useMessage, useMessageAction, useMessages, useSearch } from '../hooks/useMail';
 import { useMailPageSize } from '../hooks/useMailSettings';
 import { formatAddressFull, formatFullDate } from '../utils/format';
 import { openMessagePopup } from '../utils/windows';
@@ -60,6 +60,7 @@ export function Mailbox() {
 
   const [pageSize] = useMailPageSize();
   const qc = useQueryClient();
+  useMailEvents();
   const folders = useFolders();
   const browse = useMessages(folder, page, pageSize, filter, sort);
   const searching = useSearch(folder, search, page, pageSize, filter, sort);

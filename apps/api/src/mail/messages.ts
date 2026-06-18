@@ -106,7 +106,7 @@ function toSummary(msg: FetchMessageObject): MessageSummary {
     seen: msg.flags?.has('\\Seen') ?? false,
     flagged: msg.flags?.has('\\Flagged') ?? false,
     answered: msg.flags?.has('\\Answered') ?? false,
-    hasAttachments: hasAttachments(msg.bodyStructure),
+    hasAttachments: msg.bodyStructure ? hasAttachments(msg.bodyStructure) : false,
     preview: '',
     size: msg.size ?? 0,
   };
@@ -117,9 +117,15 @@ const summaryFetchQuery: FetchQueryObject = {
   envelope: true,
   flags: true,
   size: true,
-  bodyStructure: true,
   internalDate: true,
   headers: ['date'],
+};
+
+// Used only for the hasAttachments filter — bodyStructure is expensive so we
+// avoid it on every fetch and request it only when the result is actually needed.
+const summaryFetchQueryFull: FetchQueryObject = {
+  ...summaryFetchQuery,
+  bodyStructure: true,
 };
 
 function firstAddress(summary: MessageSummary): string {
@@ -300,6 +306,38 @@ async function searchByFlag(
   }
 }
 
+// Tracks in-flight background fills so duplicate scans are not started.
+const backgroundFillInProgress = new Set<string>();
+
+/**
+ * Populates the 'all' message cache for a folder using the search connection
+ * so the main connection stays free. Fires-and-forgets — callers use void.
+ */
+async function backgroundFillCache(sid: string, email: string, folder: string): Promise<void> {
+  const key = `${sid}\x00${email}\x00${folder}`;
+  if (backgroundFillInProgress.has(key) || readCache(sid, email, folder, 'all')) return;
+  backgroundFillInProgress.add(key);
+  try {
+    await withSearchImap(sid, email, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        if (readCache(sid, email, folder, 'all')) return;
+        const messages: MessageSummary[] = [];
+        for await (const msg of client.fetch('1:*', summaryFetchQuery)) {
+          messages.push(toSummary(msg));
+        }
+        writeCache(sid, email, folder, 'all', messages);
+      } finally {
+        lock.release();
+      }
+    });
+  } catch {
+    // best effort; next request will retry
+  } finally {
+    backgroundFillInProgress.delete(key);
+  }
+}
+
 /** Lists a filtered and sorted page of messages. */
 export async function listMessages(
   sid: string,
@@ -310,13 +348,22 @@ export async function listMessages(
   filter: MessageListFilter,
   sort: MessageListSort,
 ): Promise<MessageListResponse> {
-  // Full-folder cache serves any filter/sort without touching IMAP.
+  // Full-folder cache serves any filter/sort — except 'hasAttachments', which needs
+  // bodyStructure that is not populated in the normal (lightweight) full cache.
   const fullCache = readCache(sid, email, folder, 'all');
-  if (fullCache) {
+  if (fullCache && filter !== 'hasAttachments') {
     return pageMessages(folder, page, pageSize, applyMessageListOptions(fullCache, filter, sort));
   }
 
-  // Filter-specific cache populated by a prior IMAP SEARCH run (flag filters only).
+  // 'hasAttachments' filter uses its own cache bucket (full scan with bodyStructure).
+  if (filter === 'hasAttachments') {
+    const haCache = readCache(sid, email, folder, 'hasAttachments');
+    if (haCache) {
+      return pageMessages(folder, page, pageSize, applyMessageListOptions(haCache, filter, sort));
+    }
+  }
+
+  // Flag-specific cache populated by a prior IMAP SEARCH run (flag filters only).
   if (filter !== 'all' && filter !== 'hasAttachments') {
     const filterCache = readCache(sid, email, folder, filter);
     if (filterCache) {
@@ -333,9 +380,22 @@ export async function listMessages(
         return { folder, total: 0, page, pageSize, messages: [] };
       }
 
+      // 'hasAttachments' requires bodyStructure — full scan, own cache bucket.
+      if (filter === 'hasAttachments') {
+        const messages: MessageSummary[] = [];
+        for await (const msg of client.fetch('1:*', summaryFetchQueryFull)) {
+          messages.push(toSummary(msg));
+        }
+        writeCache(sid, email, folder, 'hasAttachments', messages);
+        // Also seed the 'all' cache while we have the full data.
+        if (!readCache(sid, email, folder, 'all')) {
+          writeCache(sid, email, folder, 'all', messages);
+        }
+        return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
+      }
+
       // Flag-based filters: IMAP SEARCH pre-filters UIDs so we only fetch the
-      // matching subset instead of scanning the whole mailbox. The result is
-      // cached under the filter key so subsequent pages skip the SEARCH too.
+      // matching subset instead of scanning the whole mailbox.
       const flagUids = await searchByFlag(client, filter);
       if (flagUids !== null) {
         if (flagUids.length === 0) {
@@ -350,8 +410,38 @@ export async function listMessages(
         return pageMessages(folder, page, pageSize, applyMessageListOptions(messages, filter, sort));
       }
 
-      // Full scan for 'all' and 'hasAttachments'. Cached under 'all' so any
-      // future filter or sort is served from memory.
+      // 'all' filter, date sort, cold cache: sequence-number pagination.
+      // IMAP sequence numbers are assigned in delivery order (1 = oldest,
+      // mbox.exists = newest), so they are a reliable proxy for date order.
+      // We fetch only the current page's slice, returning immediately, then
+      // populate the full 'all' cache in the background for filter/sort changes.
+      if (sort === 'dateDesc' || sort === 'dateAsc') {
+        const total = mbox.exists;
+
+        let seqRange: string;
+        if (sort === 'dateDesc') {
+          const hi = total - (page - 1) * pageSize;
+          if (hi <= 0) return { folder, total, page, pageSize, messages: [] };
+          seqRange = `${Math.max(1, hi - pageSize + 1)}:${hi}`;
+        } else {
+          const lo = (page - 1) * pageSize + 1;
+          if (lo > total) return { folder, total, page, pageSize, messages: [] };
+          seqRange = `${lo}:${Math.min(total, lo + pageSize - 1)}`;
+        }
+
+        const messages: MessageSummary[] = [];
+        for await (const msg of client.fetch(seqRange, summaryFetchQuery)) {
+          messages.push(toSummary(msg));
+        }
+        messages.sort(sort === 'dateDesc' ? (a, b) => compareDate(b, a) : (a, b) => compareDate(a, b));
+
+        // Seed the full cache in the background so filter/sort changes are fast.
+        void backgroundFillCache(sid, email, folder);
+
+        return { folder, total, page, pageSize, messages };
+      }
+
+      // 'all' filter, non-date sort, cold cache: full scan required for correct ordering.
       const messages: MessageSummary[] = [];
       for await (const msg of client.fetch('1:*', summaryFetchQuery)) {
         messages.push(toSummary(msg));

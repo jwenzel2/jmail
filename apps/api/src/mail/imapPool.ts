@@ -22,6 +22,13 @@ const pool = new Map<string, Pooled>();
 const searchPool = new Map<string, Pooled>();
 const IDLE_MS = 5 * 60 * 1000;
 
+interface IdleEntry {
+  client: ImapFlow;
+  stop: () => void;
+}
+
+const idlePool = new Map<string, IdleEntry>();
+
 function imapConfigured(): boolean {
   return Boolean(config.IMAP_HOST);
 }
@@ -101,8 +108,73 @@ export function withSearchImap<T>(
   return withPool(searchPool, sid, email, fn);
 }
 
+/**
+ * Starts a dedicated IMAP IDLE watch on a folder for a session.
+ * Calls onExists whenever the server reports new messages (EXISTS response).
+ * Returns a stop function; calling it closes the IDLE connection.
+ */
+export async function startIdleWatch(
+  sid: string,
+  email: string,
+  folder: string,
+  onExists: () => void,
+): Promise<() => void> {
+  // Replace any existing idle watcher for this session.
+  idlePool.get(sid)?.stop();
+
+  if (!imapConfigured()) return () => {};
+
+  let token: string | null;
+  try {
+    token = await getValidAccessToken(sid);
+  } catch {
+    return () => {};
+  }
+  if (!token) return () => {};
+
+  let client: ImapFlow;
+  try {
+    client = await connect(email, token);
+  } catch {
+    return () => {};
+  }
+
+  let stopped = false;
+
+  const stop = () => {
+    stopped = true;
+    idlePool.delete(sid);
+    try { client.close(); } catch { /* ignore */ }
+  };
+
+  idlePool.set(sid, { client, stop });
+
+  void (async () => {
+    try {
+      const handler = () => { if (!stopped) onExists(); };
+      client.on('exists', handler);
+
+      // Select the target folder. The IMAP server keeps the mailbox selected
+      // for the lifetime of the connection even after we release the JS lock.
+      const lock = await client.getMailboxLock(folder);
+      lock.release();
+
+      while (!stopped && client.usable) {
+        await client.idle();
+      }
+    } catch {
+      // Connection lost or IDLE unsupported — clean up silently.
+    } finally {
+      stop();
+    }
+  })();
+
+  return stop;
+}
+
 /** Closes both IMAP connections for a session (e.g. on logout). */
 export async function closeImap(sid: string): Promise<void> {
+  idlePool.get(sid)?.stop();
   for (const poolMap of [pool, searchPool]) {
     const entry = poolMap.get(sid);
     if (!entry) continue;

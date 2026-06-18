@@ -8,11 +8,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../plugins/guards.js';
 import { listFolders } from '../mail/folders.js';
+import { startIdleWatch } from '../mail/imapPool.js';
 import {
   applyAction,
   downloadAttachment,
   downloadMessageSource,
   getMessage,
+  invalidateFolderCache,
   listMessages,
   searchMessages,
 } from '../mail/messages.js';
@@ -119,5 +121,46 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     const user = req.currentUser as NonNullable<typeof req.currentUser>;
     const msg = sendMessageSchema.parse(req.body);
     return sendMessage(sid, user, msg);
+  });
+
+  // Server-Sent Events stream for real-time new-mail notifications.
+  // Starts a dedicated IMAP IDLE connection and pushes a 'mail' event
+  // whenever the server reports new messages in INBOX.
+  app.get('/api/mail/events', async (req, reply) => {
+    const { sid, email } = authed(req);
+
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const send = (payload: object) => {
+      try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* client gone */ }
+    };
+
+    send({ type: 'connected' });
+
+    let stopIdle: (() => void) = () => {};
+    try {
+      stopIdle = await startIdleWatch(sid, email, 'INBOX', () => {
+        // Bust the server-side cache so the next client fetch sees fresh data.
+        invalidateFolderCache(sid, email);
+        send({ type: 'mail', folder: 'INBOX' });
+      });
+    } catch { /* IDLE unavailable; SSE still provides heartbeats */ }
+
+    const heartbeat = setInterval(() => {
+      try { res.write(': heartbeat\n\n'); } catch {}
+    }, 25_000);
+
+    await new Promise<void>((resolve) => { req.raw.on('close', resolve); });
+
+    clearInterval(heartbeat);
+    stopIdle();
+    res.end();
   });
 }
