@@ -263,6 +263,25 @@ export function invalidateFolderCache(sid: string, email: string): void {
 }
 
 /**
+ * Updates the 'all' cache bucket to reflect a message being marked \Seen,
+ * and drops any flag-filter buckets that are now stale (e.g. 'unread').
+ * Called by getMessage after a successful \Seen flag write.
+ */
+function markCachedMessageSeen(sid: string, email: string, folder: string, uid: number): void {
+  const allKey = buildCacheKey(sid, email, folder, 'all');
+  const prefix = `${sid}\x00${email}\x00${folder}\x00`;
+  for (const [key, entry] of messageCache) {
+    if (!key.startsWith(prefix)) continue;
+    if (key === allKey) {
+      const msg = entry.messages.find((m) => m.uid === uid);
+      if (msg) msg.seen = true;
+    } else {
+      messageCache.delete(key);
+    }
+  }
+}
+
+/**
  * Returns matching UIDs via IMAP SEARCH for flag-based filters, avoiding a
  * full mailbox scan. Returns null for filters with no direct IMAP equivalent.
  */
@@ -374,6 +393,7 @@ export async function getMessage(
       if (!msg.flags?.has('\\Seen')) {
         try {
           await client.messageFlagsAdd(`${uid}`, ['\\Seen'], { uid: true });
+          markCachedMessageSeen(sid, email, folder, uid);
         } catch {
           /* best effort */
         }

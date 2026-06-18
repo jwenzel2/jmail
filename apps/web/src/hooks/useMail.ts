@@ -6,6 +6,7 @@ import type {
   MessageListSort,
 } from '@jmail/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import * as mail from '../api/mail';
 
 export function useFolders() {
@@ -43,11 +44,22 @@ export function useSearch(
 }
 
 export function useMessage(folder: string | null, uid: number | null) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ['message', folder, uid],
     queryFn: () => mail.getMessage(folder as string, uid as number),
     enabled: folder !== null && uid !== null,
   });
+
+  useEffect(() => {
+    if (query.data && folder) {
+      void qc.invalidateQueries({ queryKey: ['messages', folder] });
+      void qc.invalidateQueries({ queryKey: ['search', folder] });
+      void qc.invalidateQueries({ queryKey: ['folders'] });
+    }
+  }, [query.data, folder, qc]);
+
+  return query;
 }
 
 export function useMessageAction() {
