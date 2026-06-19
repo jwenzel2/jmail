@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
+import { MAX_SEND_ATTACHMENTS_BYTES } from '@jmail/shared';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { config, isProd } from './config.js';
 import { sessionPlugin } from './plugins/session.js';
@@ -21,6 +22,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       ? true
       : { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss' } } },
     trustProxy: true,
+    bodyLimit: Math.ceil(MAX_SEND_ATTACHMENTS_BYTES * 1.5),
   });
 
   await app.register(helmet, { contentSecurityPolicy: false });

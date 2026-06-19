@@ -57,6 +57,11 @@ export async function sendMessage(
     subject: msg.subject,
     text: msg.text || undefined,
     html: msg.html ?? undefined,
+    attachments: msg.attachments.map((attachment) => ({
+      filename: attachment.filename,
+      content: Buffer.from(attachment.contentBase64, 'base64'),
+      contentType: attachment.contentType,
+    })),
     inReplyTo,
     references,
   };

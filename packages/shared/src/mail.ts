@@ -120,6 +120,18 @@ export const messageDetailSchema = z.object({
 });
 export type MessageDetail = z.infer<typeof messageDetailSchema>;
 
+export const MAX_SEND_ATTACHMENTS = 10;
+export const MAX_SEND_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_SEND_ATTACHMENTS_BYTES = 25 * 1024 * 1024;
+
+export const sendAttachmentSchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  contentType: z.string().trim().min(1).max(255).default('application/octet-stream'),
+  size: z.number().int().nonnegative().max(MAX_SEND_ATTACHMENT_BYTES),
+  contentBase64: z.string().min(1),
+});
+export type SendAttachment = z.infer<typeof sendAttachmentSchema>;
+
 /** Compose / send payload. */
 export const sendMessageSchema = z.object({
   to: z.array(z.string().email()).min(1),
@@ -128,6 +140,16 @@ export const sendMessageSchema = z.object({
   subject: z.string().default(''),
   text: z.string().default(''),
   html: z.string().nullable().default(null),
+  attachments: z
+    .array(sendAttachmentSchema)
+    .max(MAX_SEND_ATTACHMENTS)
+    .default([])
+    .refine(
+      (attachments) =>
+        attachments.reduce((total, attachment) => total + attachment.size, 0) <=
+        MAX_SEND_ATTACHMENTS_BYTES,
+      'Total attachment size is too large',
+    ),
   /** UID + folder of the message being replied to / forwarded, for threading headers. */
   inReplyToUid: z.number().int().positive().nullable().default(null),
   inReplyToFolder: z.string().nullable().default(null),
