@@ -1,4 +1,5 @@
 import {
+  MAX_SEND_ATTACHMENTS_BYTES,
   messageActionSchema,
   messageListFilterSchema,
   messageListSortSchema,
@@ -45,6 +46,8 @@ const searchQuerySchema = z.object({
 const attachmentParamsSchema = messageParamsSchema.extend({
   partId: z.string().min(1),
 });
+
+const SEND_BODY_LIMIT_BYTES = Math.ceil(MAX_SEND_ATTACHMENTS_BYTES * 2);
 
 function smtpMessage(err: unknown): string {
   const error = err as { response?: unknown; message?: unknown };
@@ -129,7 +132,7 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.post('/api/mail/send', async (req, reply) => {
+  app.post('/api/mail/send', { bodyLimit: SEND_BODY_LIMIT_BYTES }, async (req, reply) => {
     const { sid } = authed(req);
     const user = req.currentUser as NonNullable<typeof req.currentUser>;
     const parsed = sendMessageSchema.safeParse(req.body);

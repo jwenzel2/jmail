@@ -257,6 +257,10 @@ server {
     root /opt/jmail/apps/web/dist;
     index index.html;
 
+    # Email attachments are sent through the JSON compose API. Keep this at
+    # least as high as the API body limit, including base64 overhead.
+    client_max_body_size 50m;
+
     location /api/ {
         proxy_pass http://127.0.0.1:4000;
         proxy_set_header Host $host;
