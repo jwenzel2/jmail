@@ -22,7 +22,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       ? true
       : { transport: { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss' } } },
     trustProxy: true,
-    bodyLimit: Math.ceil(MAX_SEND_ATTACHMENTS_BYTES * 1.5),
+    bodyLimit: Math.ceil(MAX_SEND_ATTACHMENTS_BYTES * 2),
   });
 
   await app.register(helmet, { contentSecurityPolicy: false });

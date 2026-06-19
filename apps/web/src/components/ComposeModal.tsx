@@ -18,6 +18,7 @@ import {
   type SendAttachment,
 } from '@jmail/shared';
 import { useEffect, useState } from 'react';
+import { ApiError } from '../api/client';
 import { useContacts } from '../hooks/useContacts';
 import { useSendMessage } from '../hooks/useMail';
 
@@ -171,7 +172,11 @@ export function ComposeModal({
           notifications.show({ color: 'green', message: 'Message sent.' });
           onClose();
         },
-        onError: () => notifications.show({ color: 'red', message: 'Failed to send message.' }),
+        onError: (err) =>
+          notifications.show({
+            color: 'red',
+            message: err instanceof ApiError ? err.message : 'Failed to send message.',
+          }),
       },
     );
   };

@@ -46,6 +46,19 @@ const attachmentParamsSchema = messageParamsSchema.extend({
   partId: z.string().min(1),
 });
 
+function smtpMessage(err: unknown): string {
+  const error = err as { response?: unknown; message?: unknown };
+  if (typeof error.response === 'string' && error.response.trim()) return error.response;
+  if (typeof error.message === 'string' && error.message.trim()) return error.message;
+  return 'Failed to send message.';
+}
+
+function isMessageSizeError(err: unknown): boolean {
+  const error = err as { responseCode?: unknown; code?: unknown; response?: unknown; message?: unknown };
+  const text = [error.code, error.response, error.message].filter(Boolean).join(' ');
+  return error.responseCode === 552 || /size|too large|exceed/i.test(text);
+}
+
 /** Narrows req.currentUser/sessionId after requireAuth; returns the pair or replies 401. */
 function authed(req: FastifyRequest): { sid: string; email: string } {
   // requireAuth guarantees currentUser; sessionId is set alongside it.
@@ -116,11 +129,33 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.post('/api/mail/send', async (req) => {
+  app.post('/api/mail/send', async (req, reply) => {
     const { sid } = authed(req);
     const user = req.currentUser as NonNullable<typeof req.currentUser>;
-    const msg = sendMessageSchema.parse(req.body);
-    return sendMessage(sid, user, msg);
+    const parsed = sendMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return reply.code(400).send({
+        error: 'invalid_message',
+        message: issue?.message ?? 'Message payload is invalid.',
+      });
+    }
+
+    try {
+      return await sendMessage(sid, user, parsed.data);
+    } catch (err) {
+      req.log.error({ err }, 'failed to send message');
+      if (isMessageSizeError(err)) {
+        return reply.code(413).send({
+          error: 'message_too_large',
+          message: 'The mail server rejected the message as too large. Try a smaller image.',
+        });
+      }
+      return reply.code(502).send({
+        error: 'smtp_send_failed',
+        message: smtpMessage(err),
+      });
+    }
   });
 
   // Server-Sent Events stream for real-time new-mail notifications.
