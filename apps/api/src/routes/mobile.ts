@@ -26,6 +26,7 @@ import {
 } from '../repositories/mailAccounts.js';
 import { registerDevice, unregisterDevice } from '../repositories/mobileDevices.js';
 import { isPushConfigured } from '../push/fcm.js';
+import { onDevicesChanged } from '../push/mailWatcher.js';
 import { notifyNewMail } from '../push/notifications.js';
 import { createMobileToken, revokeMobileToken } from '../repositories/mobileTokens.js';
 import {
@@ -185,12 +186,14 @@ export async function mobileRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/api/v1/mobile/devices', { preHandler: requireAuth }, async (req) => {
     await registerDevice(req.currentUser!.id, deviceRegistrationSchema.parse(req.body));
+    onDevicesChanged();
     return { ok: true };
   });
 
   app.delete('/api/v1/mobile/devices/:installationId', { preHandler: requireAuth }, async (req) => {
     const { installationId } = installationParams.parse(req.params);
     await unregisterDevice(req.currentUser!.id, installationId);
+    onDevicesChanged();
     return { ok: true };
   });
 

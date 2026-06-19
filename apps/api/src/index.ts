@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { closePool } from './db.js';
+import { startMailWatchers, stopMailWatchers } from './push/mailWatcher.js';
 import { buildServer } from './server.js';
 
 async function main(): Promise<void> {
@@ -7,6 +8,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'shutting down');
+    stopMailWatchers();
     await app.close();
     await closePool();
     process.exit(0);
@@ -16,6 +18,7 @@ async function main(): Promise<void> {
 
   try {
     await app.listen({ host: config.API_HOST, port: config.API_PORT });
+    startMailWatchers(app.log);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
