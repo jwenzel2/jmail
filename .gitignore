@@ -12,6 +12,11 @@ coverage/
 *.key
 *.crt
 
+# Firebase / FCM service-account key (never commit the JSON)
+/secrets/*
+!/secrets/.gitkeep
+!/secrets/README.md
+
 # logs
 *.log
 npm-debug.log*

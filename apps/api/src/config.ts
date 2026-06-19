@@ -56,6 +56,10 @@ const envSchema = z.object({
   // jmail-agent (Milestone 3).
   AGENT_URL: z.string().url().optional(),
   AGENT_TOKEN: z.string().optional(),
+
+  // Firebase Cloud Messaging (mobile push). When unset, push is disabled.
+  FCM_PROJECT_ID: z.string().optional(),
+  FCM_SERVICE_ACCOUNT_FILE: z.string().default('./secrets/fcm-service-account.json'),
 });
 
 const parsed = envSchema.safeParse(process.env);

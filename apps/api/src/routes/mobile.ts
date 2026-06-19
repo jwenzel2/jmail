@@ -25,6 +25,8 @@ import {
   updateMailAccount,
 } from '../repositories/mailAccounts.js';
 import { registerDevice, unregisterDevice } from '../repositories/mobileDevices.js';
+import { isPushConfigured } from '../push/fcm.js';
+import { notifyNewMail } from '../push/notifications.js';
 import { createMobileToken, revokeMobileToken } from '../repositories/mobileTokens.js';
 import {
   consumeMobileAuthCode,
@@ -189,6 +191,20 @@ export async function mobileRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/v1/mobile/devices/:installationId', { preHandler: requireAuth }, async (req) => {
     const { installationId } = installationParams.parse(req.params);
     await unregisterDevice(req.currentUser!.id, installationId);
+    return { ok: true };
+  });
+
+  // Sends a test push to the caller's registered devices. Lets you verify the
+  // Firebase + device-registration path end-to-end before new-mail triggers
+  // are wired up.
+  app.post('/api/v1/mobile/test-notification', { preHandler: requireAuth }, async (req, reply) => {
+    if (!isPushConfigured()) return reply.code(503).send({ error: 'push_not_configured' });
+    await notifyNewMail(req.currentUser!.id, {
+      sender: 'jmail',
+      subject: 'Test notification',
+      preview: 'Push notifications are working.',
+      messageId: `test-${Date.now()}`,
+    });
     return { ok: true };
   });
 }
