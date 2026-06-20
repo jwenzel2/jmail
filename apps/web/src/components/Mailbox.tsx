@@ -2,12 +2,12 @@ import type { MessageDetail, MessageListFilter, MessageListSort } from '@jmail/s
 import { Box, Button, Center, Flex, Group, Loader, Text, TextInput } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { IconPencil, IconSearch } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { messageWindowUrl } from '../api/mail';
 import { ComposeModal, EMPTY_DRAFT, type ComposeDraft } from './ComposeModal';
 import { FolderTree } from './FolderTree';
-import { MessageList } from './MessageList';
+import { MessageList, type RowAction } from './MessageList';
 import { MessageView } from './MessageView';
 import { useFolders, useMailEvents, useMessage, useMessageAction, useMessages, useSearch } from '../hooks/useMail';
 import { useMailPageSize } from '../hooks/useMailSettings';
@@ -59,6 +59,7 @@ export function Mailbox() {
   });
 
   const [pageSize] = useMailPageSize();
+  const searchRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   useMailEvents();
   const folders = useFolders();
@@ -135,6 +136,60 @@ export function Mailbox() {
     setPage(1);
   };
 
+  const onRowAction = (uid: number, act: RowAction) => {
+    action.mutate({ folder, uids: [uid], action: act });
+    if (act === 'delete' && selectedUid === uid) setSelectedUid(null);
+  };
+
+  // Keyboard-first navigation: j/k (or arrows) move the selection, Enter/o
+  // opens the message in a window, c composes, and / focuses search.
+  const messages = active.data?.messages ?? [];
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        if (e.key === 'Escape') el.blur();
+        return;
+      }
+      if (compose.opened || e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const idx = messages.findIndex((m) => m.uid === selectedUid);
+      switch (e.key) {
+        case 'j':
+        case 'ArrowDown': {
+          e.preventDefault();
+          const next = messages[Math.min(idx + 1, messages.length - 1)] ?? messages[0];
+          if (next) setSelectedUid(next.uid);
+          break;
+        }
+        case 'k':
+        case 'ArrowUp': {
+          e.preventDefault();
+          const prev = idx <= 0 ? messages[0] : messages[idx - 1];
+          if (prev) setSelectedUid(prev.uid);
+          break;
+        }
+        case 'Enter':
+        case 'o':
+          if (selectedUid !== null) {
+            e.preventDefault();
+            openMessagePopup(messageWindowUrl(folder, selectedUid));
+          }
+          break;
+        case 'c':
+          e.preventDefault();
+          setCompose({ opened: true, draft: EMPTY_DRAFT });
+          break;
+        case '/':
+          e.preventDefault();
+          searchRef.current?.focus();
+          break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [messages, selectedUid, compose.opened, folder]);
+
   return (
     <Flex direction="column" h="calc(100vh - 56px)">
       <Group
@@ -161,8 +216,9 @@ export function Mailbox() {
           style={{ flex: 1, maxWidth: 360 }}
         >
           <TextInput
+            ref={searchRef}
             size="xs"
-            placeholder={`Search ${folder}…`}
+            placeholder={`Search ${folder}…  (press / )`}
             leftSection={<IconSearch size={14} />}
             value={searchInput}
             onChange={(e) => setSearchInput(e.currentTarget.value)}
@@ -171,7 +227,7 @@ export function Mailbox() {
       </Group>
 
       <Flex style={{ flex: 1, minHeight: 0 }}>
-        <Box w={230} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
+        <Box w={210} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
           {folders.isLoading ? (
             <Center h="100%">
               <Loader size="sm" />
@@ -181,9 +237,9 @@ export function Mailbox() {
           )}
         </Box>
 
-        <Box w={400} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
+        <Box w={380} style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
           <MessageList
-            messages={active.data?.messages ?? []}
+            messages={messages}
             total={active.data?.total ?? 0}
             page={page}
             pageSize={pageSize}
@@ -196,6 +252,7 @@ export function Mailbox() {
             onSortChange={selectSort}
             onSelect={setSelectedUid}
             onOpen={openMessageWindow}
+            onAction={onRowAction}
           />
         </Box>
 

@@ -20,12 +20,19 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconFilter,
+  IconMailOpened,
   IconPaperclip,
   IconSortDescending,
+  IconStar,
   IconStarFilled,
+  IconTrash,
 } from '@tabler/icons-react';
+import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { formatAddressList, formatListDate } from '../utils/format';
+
+/** Quick actions surfaced on row hover. */
+export type RowAction = 'flag' | 'unflag' | 'markUnseen' | 'delete';
 
 const filterOptions: { value: MessageListFilter; label: string }[] = [
   { value: 'all', label: 'All messages' },
@@ -166,46 +173,133 @@ function PageFooter({
   );
 }
 
+function QuickAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip label={label} openDelay={400} withArrow>
+      <ActionIcon
+        component="div"
+        role="button"
+        aria-label={label}
+        variant="subtle"
+        color="gray"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+      >
+        {children}
+      </ActionIcon>
+    </Tooltip>
+  );
+}
+
 function Row({
   msg,
   selected,
   onClick,
   onDoubleClick,
+  onAction,
 }: {
   msg: MessageSummary;
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
+  onAction: (uid: number, action: RowAction) => void;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const unread = !msg.seen;
+
   return (
     <Box
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      px="sm"
-      py={8}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      px="xs"
+      py={6}
       style={{
         cursor: 'pointer',
         borderBottom: '1px solid var(--mantine-color-default-border)',
-        backgroundColor: selected ? 'var(--mantine-primary-color-light)' : undefined,
+        backgroundColor: selected
+          ? 'var(--mantine-primary-color-light)'
+          : hovered
+            ? 'var(--mantine-color-default-hover)'
+            : undefined,
         color: selected ? 'var(--mantine-primary-color-light-color)' : undefined,
         borderLeft: `3px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'transparent'}`,
       }}
     >
-      <Group justify="space-between" wrap="nowrap" gap="xs">
-        <Text size="sm" fw={msg.seen ? 400 : 700} truncate>
-          {formatAddressList(msg.from) || '(unknown sender)'}
-        </Text>
-        <Group gap={4} wrap="nowrap">
-          {msg.flagged ? <IconStarFilled size={12} color="orange" /> : null}
-          {msg.hasAttachments ? <IconPaperclip size={12} /> : null}
-          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-            {formatListDate(msg.date)}
+      <Group wrap="nowrap" gap={8} align="flex-start">
+        {/* Unread indicator dot — keeps the column aligned whether read or not. */}
+        <Box
+          mt={6}
+          w={7}
+          h={7}
+          style={{
+            flex: 'none',
+            borderRadius: '50%',
+            backgroundColor: unread ? 'var(--mantine-primary-color-filled)' : 'transparent',
+          }}
+        />
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Group justify="space-between" wrap="nowrap" gap="xs">
+            <Text size="sm" fw={unread ? 700 : 500} truncate>
+              {formatAddressList(msg.from) || '(unknown sender)'}
+            </Text>
+            {/* Hover reveals quick actions in place of the date/meta icons. */}
+            {hovered ? (
+              <Group gap={2} wrap="nowrap" style={{ flex: 'none' }}>
+                <QuickAction
+                  label={msg.flagged ? 'Unflag' : 'Flag'}
+                  onClick={() => onAction(msg.uid, msg.flagged ? 'unflag' : 'flag')}
+                >
+                  {msg.flagged ? (
+                    <IconStarFilled size={14} color="var(--mantine-color-yellow-6)" />
+                  ) : (
+                    <IconStar size={14} />
+                  )}
+                </QuickAction>
+                <QuickAction
+                  label="Mark unread"
+                  onClick={() => onAction(msg.uid, 'markUnseen')}
+                >
+                  <IconMailOpened size={14} />
+                </QuickAction>
+                <QuickAction label="Delete" onClick={() => onAction(msg.uid, 'delete')}>
+                  <IconTrash size={14} />
+                </QuickAction>
+              </Group>
+            ) : (
+              <Group gap={4} wrap="nowrap" style={{ flex: 'none' }}>
+                {msg.flagged ? (
+                  <IconStarFilled size={12} color="var(--mantine-color-yellow-6)" />
+                ) : null}
+                {msg.hasAttachments ? <IconPaperclip size={12} /> : null}
+                <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                  {formatListDate(msg.date)}
+                </Text>
+              </Group>
+            )}
+          </Group>
+          <Text size="sm" fw={unread ? 600 : 400} truncate c={msg.subject ? undefined : 'dimmed'}>
+            {msg.subject || '(no subject)'}
           </Text>
-        </Group>
+          {msg.preview ? (
+            <Text size="xs" c="dimmed" truncate>
+              {msg.preview}
+            </Text>
+          ) : null}
+        </Box>
       </Group>
-      <Text size="sm" fw={msg.seen ? 400 : 600} truncate c={msg.subject ? undefined : 'dimmed'}>
-        {msg.subject || '(no subject)'}
-      </Text>
     </Box>
   );
 }
@@ -224,6 +318,7 @@ export function MessageList({
   onSortChange,
   onSelect,
   onOpen,
+  onAction,
 }: {
   messages: MessageSummary[];
   total: number;
@@ -238,6 +333,7 @@ export function MessageList({
   onSortChange: (sort: MessageListSort) => void;
   onSelect: (uid: number) => void;
   onOpen: (uid: number) => void;
+  onAction: (uid: number, action: RowAction) => void;
 }) {
   return (
     <Stack gap={0} h="100%">
@@ -314,6 +410,7 @@ export function MessageList({
               selected={m.uid === selectedUid}
               onClick={() => onSelect(m.uid)}
               onDoubleClick={() => onOpen(m.uid)}
+              onAction={onAction}
             />
           ))
         )}

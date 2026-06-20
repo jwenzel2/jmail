@@ -14,6 +14,7 @@ import {
 import { upsertUser } from '../repositories/users.js';
 import { saveTokens } from '../repositories/sessions.js';
 import { closeImap } from '../mail/imapPool.js';
+import { invalidateFolderCache } from '../mail/messages.js';
 
 const TX_COOKIE = 'jmail_oidc_tx';
 const txCookieOptions = {
@@ -124,7 +125,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // End the session.
   app.post('/auth/logout', async (req, reply) => {
-    if (req.sessionId) await closeImap(req.sessionId);
+    if (req.sessionId) {
+      await closeImap(req.sessionId);
+      if (req.currentUser) invalidateFolderCache(req.sessionId, req.currentUser.email);
+    }
     await app.endSession(req, reply);
     return { ok: true };
   });

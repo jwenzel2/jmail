@@ -12,13 +12,14 @@ import { listFolders } from '../mail/folders.js';
 import { startIdleWatch } from '../mail/imapPool.js';
 import {
   applyAction,
-  downloadAttachment,
   downloadMessageSource,
   getMessage,
   invalidateFolderCache,
   listMessages,
   searchMessages,
+  streamAttachment,
 } from '../mail/messages.js';
+import { pipeline } from 'node:stream/promises';
 import { sendMessage } from '../mail/smtp.js';
 
 const listQuerySchema = z.object({
@@ -113,16 +114,33 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/mail/message/:folder/:uid/attachment/:partId', async (req, reply: FastifyReply) => {
     const { sid, email } = authed(req);
     const { folder, uid, partId } = attachmentParamsSchema.parse(req.params);
-    const att = await downloadAttachment(sid, email, decodeURIComponent(folder), uid, partId);
-    if (!att) return reply.code(404).send({ error: 'not_found' });
-    reply.header('content-type', att.contentType);
-    if (att.filename) {
-      reply.header(
-        'content-disposition',
-        `attachment; filename="${att.filename.replace(/"/g, '')}"`,
-      );
+
+    // Stream the part straight to the client so large attachments never sit
+    // fully buffered in the API's heap. The IMAP lock is held for the duration
+    // of the pipe, so we drive the response via reply.raw and await completion.
+    const found = await streamAttachment(
+      sid,
+      email,
+      decodeURIComponent(folder),
+      uid,
+      partId,
+      async (meta, content) => {
+        reply.hijack();
+        const headers: Record<string, string> = {
+          'content-type': meta.contentType,
+        };
+        if (meta.filename) {
+          headers['content-disposition'] =
+            `attachment; filename="${meta.filename.replace(/"/g, '')}"`;
+        }
+        reply.raw.writeHead(200, headers);
+        await pipeline(content, reply.raw);
+      },
+    );
+
+    if (!found && !reply.raw.headersSent) {
+      return reply.code(404).send({ error: 'not_found' });
     }
-    return reply.send(att.content);
   });
 
   app.post('/api/mail/actions', async (req) => {
@@ -192,7 +210,7 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     } catch { /* IDLE unavailable; SSE still provides heartbeats */ }
 
     const heartbeat = setInterval(() => {
-      try { res.write(': heartbeat\n\n'); } catch {}
+      try { res.write(': heartbeat\n\n'); } catch { /* client gone */ }
     }, 25_000);
 
     await new Promise<void>((resolve) => { req.raw.on('close', resolve); });

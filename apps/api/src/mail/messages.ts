@@ -8,6 +8,7 @@ import type {
   MessageListSort,
   MessageSummary,
 } from '@jmail/shared';
+import type { Readable } from 'node:stream';
 import type { FetchMessageObject, FetchQueryObject, ImapFlow, MessageStructureObject } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { getFolderByRole } from './folders.js';
@@ -229,6 +230,10 @@ interface CachedMessages {
 
 const messageCache = new Map<string, CachedMessages>();
 const CACHE_TTL_MS = 60_000;
+// Hard cap on cached folder listings. Each 'all' entry can hold a full folder's
+// worth of summaries, so bound the total to keep memory predictable; the
+// least-recently-used entry is evicted once the cap is exceeded.
+const CACHE_MAX_ENTRIES = 200;
 
 function buildCacheKey(sid: string, email: string, folder: string, bucket: string): string {
   return `${sid}\x00${email}\x00${folder}\x00${bucket}`;
@@ -247,6 +252,9 @@ function readCache(
     messageCache.delete(key);
     return null;
   }
+  // Refresh LRU recency: re-insert so this key moves to the end of the Map.
+  messageCache.delete(key);
+  messageCache.set(key, entry);
   return entry.messages;
 }
 
@@ -257,8 +265,27 @@ function writeCache(
   bucket: string,
   messages: MessageSummary[],
 ): void {
-  messageCache.set(buildCacheKey(sid, email, folder, bucket), { messages, ts: Date.now() });
+  const key = buildCacheKey(sid, email, folder, bucket);
+  messageCache.delete(key);
+  messageCache.set(key, { messages, ts: Date.now() });
+  // Evict the oldest entries (front of the Map) once over the cap.
+  while (messageCache.size > CACHE_MAX_ENTRIES) {
+    const oldest = messageCache.keys().next().value;
+    if (oldest === undefined) break;
+    messageCache.delete(oldest);
+  }
 }
+
+// Actively drop expired entries so idle/abandoned sessions don't retain their
+// cached folder listings until a read that may never come. Mirrors the IMAP
+// pool sweeper in imapPool.ts.
+const cacheSweeper = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of messageCache) {
+    if (now - entry.ts > CACHE_TTL_MS) messageCache.delete(key);
+  }
+}, CACHE_TTL_MS);
+cacheSweeper.unref();
 
 /** Clears all cached message lists for a session. Call after any mailbox mutation. */
 export function invalidateFolderCache(sid: string, email: string): void {
@@ -539,32 +566,38 @@ export async function downloadMessageSource(
   });
 }
 
-export interface DownloadedAttachment {
+export interface DownloadMeta {
   filename: string | null;
   contentType: string;
-  content: Buffer;
 }
 
-/** Downloads a single message part as a buffer (held within the IMAP lock). */
-export async function downloadAttachment(
+/**
+ * Streams a single message part to `sink` without buffering the whole
+ * attachment in memory. The IMAP mailbox lock (and the per-session connection)
+ * is held until `sink` resolves, so the sink must fully consume/pipe the stream
+ * before returning. Returns false if the part is not found.
+ */
+export async function streamAttachment(
   sid: string,
   email: string,
   folder: string,
   uid: number,
   partId: string,
-): Promise<DownloadedAttachment | null> {
+  sink: (meta: DownloadMeta, content: Readable) => Promise<void>,
+): Promise<boolean> {
   return withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(folder);
     try {
       const dl = await client.download(`${uid}`, partId, { uid: true });
-      if (!dl) return null;
-      const chunks: Buffer[] = [];
-      for await (const chunk of dl.content) chunks.push(chunk as Buffer);
-      return {
-        filename: dl.meta.filename ?? null,
-        contentType: dl.meta.contentType ?? 'application/octet-stream',
-        content: Buffer.concat(chunks),
-      };
+      if (!dl) return false;
+      await sink(
+        {
+          filename: dl.meta.filename ?? null,
+          contentType: dl.meta.contentType ?? 'application/octet-stream',
+        },
+        dl.content,
+      );
+      return true;
     } finally {
       lock.release();
     }
