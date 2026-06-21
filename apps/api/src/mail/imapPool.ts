@@ -36,6 +36,24 @@ interface IdleEntry {
 
 const idlePool = new Map<string, IdleEntry>();
 
+// In-flight connection promises, keyed per pool then per session. A cold page
+// load fires several IMAP-backed requests at once (folders + messages, plus
+// search); without this they would each open a separate connection and all but
+// the last would be orphaned (never pooled, never closed) until the server's
+// idle timeout — accumulating until Dovecot's mail_max_userip_connections cap
+// rejects every new AUTHENTICATE. Sharing one in-flight connect collapses the
+// burst onto a single pooled connection.
+const connecting = new WeakMap<Map<string, Pooled>, Map<string, Promise<Pooled>>>();
+
+function inflightFor(poolMap: Map<string, Pooled>): Map<string, Promise<Pooled>> {
+  let m = connecting.get(poolMap);
+  if (!m) {
+    m = new Map();
+    connecting.set(poolMap, m);
+  }
+  return m;
+}
+
 function imapConfigured(): boolean {
   return Boolean(config.IMAP_HOST);
 }
@@ -71,20 +89,34 @@ async function acquire(
     poolMap.delete(sid);
   }
   if (!imapConfigured()) throw new Error('imap_not_configured');
-  const token = await getValidAccessToken(sid);
-  if (!token) throw new Error('no_access_token');
 
-  const client = await connect(email, token);
-  const now = Date.now();
-  const entry: Pooled = { client, email, mutex: Promise.resolve(), lastUsed: now, createdAt: now };
-  client.on('close', () => {
-    if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
-  });
-  client.on('error', () => {
-    if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
-  });
-  poolMap.set(sid, entry);
-  return { entry, reused: false };
+  // Collapse a concurrent burst of cold acquires for this session onto one
+  // connect, so parallel requests share a single pooled connection instead of
+  // each opening (and orphaning) their own.
+  const inflightMap = inflightFor(poolMap);
+  let inflight = inflightMap.get(sid);
+  if (!inflight) {
+    inflight = (async () => {
+      const token = await getValidAccessToken(sid);
+      if (!token) throw new Error('no_access_token');
+      const client = await connect(email, token);
+      const now = Date.now();
+      const entry: Pooled = { client, email, mutex: Promise.resolve(), lastUsed: now, createdAt: now };
+      client.on('close', () => {
+        if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
+      });
+      client.on('error', () => {
+        if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
+      });
+      poolMap.set(sid, entry);
+      return entry;
+    })().finally(() => {
+      inflightMap.delete(sid);
+    });
+    inflightMap.set(sid, inflight);
+  }
+
+  return { entry: await inflight, reused: false };
 }
 
 async function withPool<T>(
