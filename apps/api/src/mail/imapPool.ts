@@ -16,11 +16,18 @@ interface Pooled {
   email: string;
   mutex: Promise<unknown>;
   lastUsed: number;
+  createdAt: number;
 }
 
 const pool = new Map<string, Pooled>();
 const searchPool = new Map<string, Pooled>();
 const IDLE_MS = 5 * 60 * 1000;
+// A connection is authenticated once with the session's OAuth access token,
+// which has a short TTL (~5 min). The IMAP server rejects commands on the
+// connection once that credential goes stale, so proactively recycle a pooled
+// connection before the token expires rather than reuse it indefinitely.
+// (The push watcher recycles for the same reason — see mailWatcher.ts.)
+const MAX_AGE_MS = 4 * 60 * 1000;
 
 interface IdleEntry {
   client: ImapFlow;
@@ -49,11 +56,15 @@ async function connect(email: string, accessToken: string): Promise<ImapFlow> {
   return client;
 }
 
-async function acquire(poolMap: Map<string, Pooled>, sid: string, email: string): Promise<Pooled> {
+async function acquire(
+  poolMap: Map<string, Pooled>,
+  sid: string,
+  email: string,
+): Promise<{ entry: Pooled; reused: boolean }> {
   const existing = poolMap.get(sid);
-  if (existing && existing.client.usable) {
+  if (existing && existing.client.usable && Date.now() - existing.createdAt < MAX_AGE_MS) {
     existing.lastUsed = Date.now();
-    return existing;
+    return { entry: existing, reused: true };
   }
   if (existing) {
     try { existing.client.close(); } catch { /* ignore */ }
@@ -64,7 +75,8 @@ async function acquire(poolMap: Map<string, Pooled>, sid: string, email: string)
   if (!token) throw new Error('no_access_token');
 
   const client = await connect(email, token);
-  const entry: Pooled = { client, email, mutex: Promise.resolve(), lastUsed: Date.now() };
+  const now = Date.now();
+  const entry: Pooled = { client, email, mutex: Promise.resolve(), lastUsed: now, createdAt: now };
   client.on('close', () => {
     if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
   });
@@ -72,7 +84,7 @@ async function acquire(poolMap: Map<string, Pooled>, sid: string, email: string)
     if (poolMap.get(sid)?.client === client) poolMap.delete(sid);
   });
   poolMap.set(sid, entry);
-  return entry;
+  return { entry, reused: false };
 }
 
 async function withPool<T>(
@@ -81,13 +93,30 @@ async function withPool<T>(
   email: string,
   fn: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
-  const entry = await acquire(poolMap, sid, email);
-  const run = entry.mutex.then(() => {
-    entry.lastUsed = Date.now();
-    return fn(entry.client);
-  });
-  entry.mutex = run.then(() => undefined, () => undefined);
-  return run;
+  for (let attempt = 0; ; attempt++) {
+    const { entry, reused } = await acquire(poolMap, sid, email);
+    const run = entry.mutex.then(() => {
+      entry.lastUsed = Date.now();
+      return fn(entry.client);
+    });
+    entry.mutex = run.then(() => undefined, () => undefined);
+    try {
+      return await run;
+    } catch (err) {
+      // A reused pooled connection can be silently dead — server idle-timeout,
+      // dropped socket, or an expired OAuth credential the IMAP server now
+      // rejects ("Command failed"). The command never completed, so discard the
+      // connection and retry once on a fresh one (which re-authenticates with a
+      // freshly-refreshed token). A freshly-created connection failing is a real
+      // error, so never retry that.
+      if (poolMap.get(sid)?.client === entry.client) {
+        try { entry.client.close(); } catch { /* ignore */ }
+        poolMap.delete(sid);
+      }
+      if (reused && attempt === 0) continue;
+      throw err;
+    }
+  }
 }
 
 /** Runs fn with the main IMAP connection for the session (serialized). */
