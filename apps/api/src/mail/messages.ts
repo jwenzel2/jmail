@@ -610,6 +610,22 @@ export async function applyAction(
   email: string,
   action: MessageAction,
 ): Promise<void> {
+  // Resolve any role-based target folder BEFORE opening the action connection.
+  // getFolderByRole runs its own withImap; calling it inside the block below
+  // would re-enter the per-session pool while we already hold the connection,
+  // deadlocking on the per-connection mutex (the request — and every later
+  // request for the session — would then hang until the process restarts).
+  let trash: string | null = null;
+  let junk: string | null = null;
+  let inbox = 'INBOX';
+  if (action.action === 'delete') {
+    trash = await getFolderByRole(sid, email, 'trash');
+  } else if (action.action === 'markSpam') {
+    junk = await getFolderByRole(sid, email, 'junk');
+  } else if (action.action === 'notSpam') {
+    inbox = (await getFolderByRole(sid, email, 'inbox')) ?? 'INBOX';
+  }
+
   await withImap(sid, email, async (client) => {
     const lock = await client.getMailboxLock(action.folder);
     try {
@@ -632,7 +648,6 @@ export async function applyAction(
             await client.messageMove(uids, action.targetFolder, { uid: true });
           break;
         case 'delete': {
-          const trash = await getFolderByRole(sid, email, 'trash');
           if (trash && trash !== action.folder) {
             await client.messageMove(uids, trash, { uid: true });
           } else {
@@ -642,12 +657,10 @@ export async function applyAction(
         }
         // Moving in/out of Junk triggers server-side IMAPSieve -> sa-learn.
         case 'markSpam': {
-          const junk = await getFolderByRole(sid, email, 'junk');
           if (junk && junk !== action.folder) await client.messageMove(uids, junk, { uid: true });
           break;
         }
         case 'notSpam': {
-          const inbox = (await getFolderByRole(sid, email, 'inbox')) ?? 'INBOX';
           if (inbox !== action.folder) await client.messageMove(uids, inbox, { uid: true });
           break;
         }
