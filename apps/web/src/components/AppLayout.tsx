@@ -1,9 +1,20 @@
-import { AppShell, Avatar, Button, Group, Menu, Text, Title, UnstyledButton } from '@mantine/core';
+import {
+  ActionIcon,
+  AppShell,
+  Avatar,
+  Button,
+  Group,
+  Menu,
+  Text,
+  Title,
+  UnstyledButton,
+} from '@mantine/core';
 import {
   IconAddressBook,
   IconCalendar,
   IconLogout,
   IconMail,
+  IconMenu2,
   IconSettings,
   IconShieldCog,
 } from '@tabler/icons-react';
@@ -34,11 +45,42 @@ export function AppLayout({ user, children }: { user: CurrentUser; children: Rea
   const logout = useLogout();
   const initials = (user.displayName ?? user.email).slice(0, 2).toUpperCase();
 
+  const navItems: { to: string; icon: ReactNode; label: string }[] = [
+    { to: '/', icon: <IconMail size={16} />, label: 'Mail' },
+    { to: '/contacts', icon: <IconAddressBook size={16} />, label: 'Contacts' },
+    { to: '/calendar', icon: <IconCalendar size={16} />, label: 'Calendar' },
+    { to: '/settings', icon: <IconSettings size={16} />, label: 'Settings' },
+    { to: '/settings/spam', icon: <IconSettings size={16} />, label: 'Spam' },
+    ...(user.isAdmin
+      ? [{ to: '/admin/spam', icon: <IconShieldCog size={16} />, label: 'Admin' }]
+      : []),
+  ];
+
   return (
     <AppShell header={{ height: 56 }} padding={0}>
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="lg" wrap="nowrap">
+            {/* Burger nav for phones; the inline nav appears from `sm` up. */}
+            <Menu position="bottom-start" withArrow>
+              <Menu.Target>
+                <ActionIcon variant="subtle" aria-label="Navigation" hiddenFrom="sm">
+                  <IconMenu2 size={20} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {navItems.map((item) => (
+                  <Menu.Item
+                    key={item.to}
+                    component={Link}
+                    to={item.to}
+                    leftSection={item.icon}
+                  >
+                    {item.label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
             <Group gap="sm" wrap="nowrap">
               {branding.logoUrl ? (
                 <img src={branding.logoUrl} alt={branding.appName} height={28} />
@@ -47,15 +89,10 @@ export function AppLayout({ user, children }: { user: CurrentUser; children: Rea
                 {branding.appName}
               </Title>
             </Group>
-            <Group gap={4} wrap="nowrap">
-              <NavButton to="/" icon={<IconMail size={16} />} label="Mail" />
-              <NavButton to="/contacts" icon={<IconAddressBook size={16} />} label="Contacts" />
-              <NavButton to="/calendar" icon={<IconCalendar size={16} />} label="Calendar" />
-              <NavButton to="/settings" icon={<IconSettings size={16} />} label="Settings" />
-              <NavButton to="/settings/spam" icon={<IconSettings size={16} />} label="Spam" />
-              {user.isAdmin ? (
-                <NavButton to="/admin/spam" icon={<IconShieldCog size={16} />} label="Admin" />
-              ) : null}
+            <Group gap={4} wrap="nowrap" visibleFrom="sm">
+              {navItems.map((item) => (
+                <NavButton key={item.to} to={item.to} icon={item.icon} label={item.label} />
+              ))}
             </Group>
           </Group>
 

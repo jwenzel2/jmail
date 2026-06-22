@@ -2,6 +2,8 @@ import { Center, Loader } from '@mantine/core';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
 import { Mailbox } from './components/Mailbox';
+import { MobileMailbox } from './components/MobileMailbox';
+import { useIsMobile } from './hooks/useIsMobile';
 import { useSession } from './hooks/useSession';
 import { ContactsPage } from './pages/ContactsPage';
 import { CalendarPage } from './pages/CalendarPage';
@@ -15,6 +17,7 @@ import { SpamSettingsPage } from './pages/SpamSettingsPage';
 
 export function App() {
   const { user, isLoading } = useSession();
+  const isMobile = useIsMobile();
 
   if (isLoading) {
     return (
@@ -36,7 +39,7 @@ export function App() {
         element={
           <AppLayout user={user}>
             <Routes>
-              <Route path="/" element={<Mailbox />} />
+              <Route path="/" element={isMobile ? <MobileMailbox /> : <Mailbox />} />
               <Route path="/contacts" element={<ContactsPage />} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/settings" element={<SettingsPage />} />

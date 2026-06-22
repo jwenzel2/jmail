@@ -736,3 +736,25 @@ export async function searchMessages(
     }
   });
 }
+
+/**
+ * Returns every UID matching a folder + filter (and optional search query),
+ * unpaginated, in the same order the list/search views would show. Used by the
+ * "select every message" action so bulk operations can target the whole folder,
+ * not just the current page. Reuses the paged list/search paths (and their
+ * caches) with an unbounded page size so the result stays consistent with the UI.
+ */
+export async function listMessageUids(
+  sid: string,
+  email: string,
+  folder: string,
+  filter: MessageListFilter,
+  query: string,
+): Promise<number[]> {
+  const ALL = Number.MAX_SAFE_INTEGER;
+  const q = query.trim();
+  const res = q
+    ? await searchMessages(sid, email, folder, q, 1, ALL, filter, 'dateDesc')
+    : await listMessages(sid, email, folder, 1, ALL, filter, 'dateDesc');
+  return res.messages.map((m) => m.uid);
+}

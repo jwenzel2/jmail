@@ -1,9 +1,11 @@
-import type { MessageListFilter, MessageListSort, MessageSummary } from '@jmail/shared';
+import type { MailFolder, MessageListFilter, MessageListSort, MessageSummary } from '@jmail/shared';
 import {
   ActionIcon,
+  Anchor,
   Box,
   Button,
   Center,
+  Checkbox,
   Group,
   Loader,
   Menu,
@@ -20,12 +22,15 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconFilter,
+  IconFolderSymlink,
+  IconMail,
   IconMailOpened,
   IconPaperclip,
   IconSortDescending,
   IconStar,
   IconStarFilled,
   IconTrash,
+  IconX,
 } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
@@ -205,18 +210,25 @@ function QuickAction({
 function Row({
   msg,
   selected,
+  checked,
+  onToggleSelect,
   onClick,
   onDoubleClick,
   onAction,
 }: {
   msg: MessageSummary;
   selected: boolean;
+  checked: boolean;
+  onToggleSelect: (uid: number) => void;
   onClick: () => void;
   onDoubleClick: () => void;
   onAction: (uid: number, action: RowAction) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const unread = !msg.seen;
+  // The checkbox stays visible once anything is hovered or this row is checked,
+  // otherwise it gives way to the unread dot to keep the list dense.
+  const showCheckbox = hovered || checked;
 
   return (
     <Box
@@ -231,25 +243,38 @@ function Row({
         borderBottom: '1px solid var(--mantine-color-default-border)',
         backgroundColor: selected
           ? 'var(--mantine-primary-color-light)'
-          : hovered
-            ? 'var(--mantine-color-default-hover)'
-            : undefined,
+          : checked
+            ? 'var(--mantine-primary-color-light-hover)'
+            : hovered
+              ? 'var(--mantine-color-default-hover)'
+              : undefined,
         color: selected ? 'var(--mantine-primary-color-light-color)' : undefined,
         borderLeft: `3px solid ${selected ? 'var(--mantine-primary-color-filled)' : 'transparent'}`,
       }}
     >
       <Group wrap="nowrap" gap={8} align="flex-start">
-        {/* Unread indicator dot — keeps the column aligned whether read or not. */}
-        <Box
-          mt={6}
-          w={7}
-          h={7}
-          style={{
-            flex: 'none',
-            borderRadius: '50%',
-            backgroundColor: unread ? 'var(--mantine-primary-color-filled)' : 'transparent',
-          }}
-        />
+        {/* Checkbox / unread dot share a column so the layout never shifts. */}
+        <Box w={16} style={{ flex: 'none', display: 'flex', justifyContent: 'center' }} mt={3}>
+          {showCheckbox ? (
+            <Checkbox
+              size="xs"
+              checked={checked}
+              aria-label={checked ? 'Deselect message' : 'Select message'}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => onToggleSelect(msg.uid)}
+            />
+          ) : (
+            <Box
+              mt={3}
+              w={7}
+              h={7}
+              style={{
+                borderRadius: '50%',
+                backgroundColor: unread ? 'var(--mantine-primary-color-filled)' : 'transparent',
+              }}
+            />
+          )}
+        </Box>
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Group justify="space-between" wrap="nowrap" gap="xs">
             <Text size="sm" fw={unread ? 700 : 500} truncate>
@@ -313,12 +338,25 @@ export function MessageList({
   sort,
   loading,
   selectedUid,
+  selectedUids,
+  allMatching,
+  pageAllSelected,
+  pageSomeSelected,
+  moveTargets,
+  bulkBusy,
   onPageChange,
   onFilterChange,
   onSortChange,
   onSelect,
   onOpen,
   onAction,
+  onToggleOne,
+  onTogglePage,
+  onSelectAllMatching,
+  onClearSelection,
+  onBulkToggleRead,
+  onBulkMove,
+  onBulkDelete,
 }: {
   messages: MessageSummary[];
   total: number;
@@ -328,13 +366,32 @@ export function MessageList({
   sort: MessageListSort;
   loading: boolean;
   selectedUid: number | null;
+  selectedUids: Set<number>;
+  allMatching: boolean;
+  pageAllSelected: boolean;
+  pageSomeSelected: boolean;
+  moveTargets: MailFolder[];
+  bulkBusy: boolean;
   onPageChange: (page: number) => void;
   onFilterChange: (filter: MessageListFilter) => void;
   onSortChange: (sort: MessageListSort) => void;
   onSelect: (uid: number) => void;
   onOpen: (uid: number) => void;
   onAction: (uid: number, action: RowAction) => void;
+  onToggleOne: (uid: number) => void;
+  onTogglePage: () => void;
+  onSelectAllMatching: () => void;
+  onClearSelection: () => void;
+  onBulkToggleRead: () => void;
+  onBulkMove: (targetFolder: string) => void;
+  onBulkDelete: () => void;
 }) {
+  const selectedCount = selectedUids.size;
+  // Toggle label: if every selected (visible) message is already read, the
+  // bulk action marks them unread instead.
+  const visibleSelected = messages.filter((m) => selectedUids.has(m.uid));
+  const markUnread = visibleSelected.length > 0 && visibleSelected.every((m) => m.seen);
+
   return (
     <Stack gap={0} h="100%">
       <Group
@@ -343,10 +400,22 @@ export function MessageList({
         py={6}
         bg="var(--mantine-color-body)"
         style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+        wrap="nowrap"
       >
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-          {total} message{total === 1 ? '' : 's'}
-        </Text>
+        <Group gap="xs" wrap="nowrap">
+          <Checkbox
+            size="xs"
+            aria-label={pageAllSelected ? 'Deselect all on page' : 'Select all on page'}
+            checked={pageAllSelected}
+            indeterminate={pageSomeSelected && !pageAllSelected}
+            onChange={onTogglePage}
+          />
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ whiteSpace: 'nowrap' }}>
+            {selectedCount > 0
+              ? `${selectedCount} selected`
+              : `${total} message${total === 1 ? '' : 's'}`}
+          </Text>
+        </Group>
         <Group gap={6} wrap="nowrap">
           {loading ? <Loader size="xs" /> : null}
           <Menu position="bottom-end" withArrow>
@@ -395,6 +464,89 @@ export function MessageList({
           </Menu>
         </Group>
       </Group>
+
+      {selectedCount > 0 ? (
+        <Stack
+          gap={4}
+          px="sm"
+          py={6}
+          bg="var(--mantine-primary-color-light)"
+          style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+        >
+          <Group gap={6} wrap="nowrap" justify="space-between">
+            <Group gap={6} wrap="nowrap">
+              <Tooltip label={markUnread ? 'Mark unread' : 'Mark read'} withArrow>
+                <Button
+                  size="compact-xs"
+                  variant="default"
+                  leftSection={
+                    markUnread ? <IconMail size={14} /> : <IconMailOpened size={14} />
+                  }
+                  loading={bulkBusy}
+                  onClick={onBulkToggleRead}
+                >
+                  {markUnread ? 'Unread' : 'Read'}
+                </Button>
+              </Tooltip>
+              <Menu position="bottom-start" withArrow withinPortal>
+                <Menu.Target>
+                  <Button
+                    size="compact-xs"
+                    variant="default"
+                    leftSection={<IconFolderSymlink size={14} />}
+                    disabled={bulkBusy || moveTargets.length === 0}
+                  >
+                    Move
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown mah={320} style={{ overflowY: 'auto' }}>
+                  <Menu.Label>Move to folder</Menu.Label>
+                  {moveTargets.map((f) => (
+                    <Menu.Item key={f.path} onClick={() => onBulkMove(f.path)}>
+                      {f.name}
+                    </Menu.Item>
+                  ))}
+                </Menu.Dropdown>
+              </Menu>
+              <Button
+                size="compact-xs"
+                variant="default"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                loading={bulkBusy}
+                onClick={onBulkDelete}
+              >
+                Delete
+              </Button>
+            </Group>
+            <Tooltip label="Clear selection" withArrow>
+              <ActionIcon
+                aria-label="Clear selection"
+                variant="subtle"
+                color="gray"
+                size="sm"
+                onClick={onClearSelection}
+              >
+                <IconX size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+
+          {allMatching ? (
+            <Text size="xs" c="dimmed">
+              All {total} message{total === 1 ? '' : 's'} in this view are selected.
+            </Text>
+          ) : pageAllSelected && total > messages.length ? (
+            <Text size="xs" c="dimmed">
+              All {messages.length} on this page selected.{' '}
+              <Anchor size="xs" component="button" type="button" onClick={onSelectAllMatching}>
+                Select all {total} message{total === 1 ? '' : 's'}
+              </Anchor>
+            </Text>
+          ) : null}
+        </Stack>
+      ) : null}
+
       <ScrollArea style={{ flex: 1 }}>
         {messages.length === 0 && !loading ? (
           <Center h={200}>
@@ -408,6 +560,8 @@ export function MessageList({
               key={m.uid}
               msg={m}
               selected={m.uid === selectedUid}
+              checked={selectedUids.has(m.uid)}
+              onToggleSelect={onToggleOne}
               onClick={() => onSelect(m.uid)}
               onDoubleClick={() => onOpen(m.uid)}
               onAction={onAction}

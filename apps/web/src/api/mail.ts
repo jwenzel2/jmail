@@ -39,6 +39,12 @@ export const searchMessages = (
     `/api/mail/search?folder=${enc(folder)}&q=${enc(q)}&page=${page}&pageSize=${pageSize}&filter=${filter}&sort=${sort}`,
   );
 
+/** All UIDs matching the current folder + filter (+ search), for "select all". */
+export const getMessageUids = (folder: string, filter: MessageListFilter, q: string) =>
+  apiGet<{ uids: number[] }>(
+    `/api/mail/message-uids?folder=${enc(folder)}&filter=${filter}${q ? `&q=${enc(q)}` : ''}`,
+  );
+
 export const applyAction = (action: MessageAction) =>
   apiSend<{ ok: boolean }>('POST', '/api/mail/actions', action);
 

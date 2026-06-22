@@ -16,6 +16,7 @@ import {
   getMessage,
   invalidateFolderCache,
   listMessages,
+  listMessageUids,
   searchMessages,
   streamAttachment,
 } from '../mail/messages.js';
@@ -42,6 +43,12 @@ const searchQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(200).default(50),
   filter: messageListFilterSchema.default('all'),
   sort: messageListSortSchema.default('dateDesc'),
+});
+
+const uidsQuerySchema = z.object({
+  folder: z.string().default('INBOX'),
+  q: z.string().optional().default(''),
+  filter: messageListFilterSchema.default('all'),
 });
 
 const attachmentParamsSchema = messageParamsSchema.extend({
@@ -90,6 +97,13 @@ export async function mailRoutes(app: FastifyInstance): Promise<void> {
     const { sid, email } = authed(req);
     const { folder, q, page, pageSize, filter, sort } = searchQuerySchema.parse(req.query);
     return searchMessages(sid, email, folder, q, page, pageSize, filter, sort);
+  });
+
+  app.get('/api/mail/message-uids', async (req) => {
+    const { sid, email } = authed(req);
+    const { folder, q, filter } = uidsQuerySchema.parse(req.query);
+    const uids = await listMessageUids(sid, email, folder, filter, q);
+    return { uids };
   });
 
   app.get('/api/mail/message/:folder/:uid', async (req, reply) => {
