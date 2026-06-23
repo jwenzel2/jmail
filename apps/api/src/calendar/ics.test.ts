@@ -11,6 +11,8 @@ const event: CalendarEvent = {
   startsAt: '2026-06-15T14:00:00.000Z',
   endsAt: '2026-06-15T15:00:00.000Z',
   allDay: false,
+  seriesId: null,
+  recurrence: null,
 };
 
 describe('ICS codec', () => {

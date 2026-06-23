@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+/** How often a repeating event recurs. Null/absent means it does not repeat. */
+export const recurrenceFrequencySchema = z.enum(['daily', 'weekly', 'monthly', 'yearly']);
+export type RecurrenceFrequency = z.infer<typeof recurrenceFrequencySchema>;
+
 export const calendarEventSchema = z.object({
   id: z.string().uuid(),
   icalUid: z.string(),
@@ -9,6 +13,10 @@ export const calendarEventSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   allDay: z.boolean(),
+  /** Shared id linking every materialized occurrence of one repeating event. */
+  seriesId: z.string().uuid().nullable(),
+  /** Recurrence frequency for this occurrence's series, or null if standalone. */
+  recurrence: recurrenceFrequencySchema.nullable(),
 });
 export type CalendarEvent = z.infer<typeof calendarEventSchema>;
 
@@ -20,6 +28,7 @@ export const calendarEventInputSchema = z
     startsAt: z.string().datetime(),
     endsAt: z.string().datetime(),
     allDay: z.boolean().default(false),
+    recurrence: recurrenceFrequencySchema.nullable().default(null),
   })
   .refine((event) => Date.parse(event.endsAt) > Date.parse(event.startsAt), {
     message: 'Event end must be after its start',
@@ -34,6 +43,7 @@ export const calendarEventUpdateSchema = z.object({
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional(),
   allDay: z.boolean().optional(),
+  recurrence: recurrenceFrequencySchema.nullable().optional(),
 });
 export type CalendarEventUpdate = z.infer<typeof calendarEventUpdateSchema>;
 

@@ -141,6 +141,7 @@ export function parseIcs(content: string): ImportedCalendarEvent[] {
           startsAt: start.toISOString(),
           endsAt: end.toISOString(),
           allDay,
+          recurrence: null,
         });
       }
       fields = null;

@@ -14,6 +14,7 @@ import {
   getEvent,
   listAllEvents,
   listEvents,
+  stopRecurrenceFrom,
   updateEvent,
   upsertImportedEvent,
 } from '../repositories/calendar.js';
@@ -52,6 +53,15 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParams.parse(req.params);
     if (!(await deleteEvent(req.currentUser!.id, id))) return reply.notFound('event not found');
     return { ok: true };
+  });
+
+  // Stop a series from this occurrence onward: keep this and earlier events,
+  // delete every later occurrence in the series.
+  app.post('/api/calendar/events/:id/stop-recurrence', async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const event = await stopRecurrenceFrom(req.currentUser!.id, id);
+    if (!event) return reply.notFound('event not found');
+    return event;
   });
 
   app.post('/api/calendar/import', async (req) => {

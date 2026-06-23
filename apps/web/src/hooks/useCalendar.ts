@@ -40,3 +40,8 @@ export function useImportCalendar() {
   const invalidate = useInvalidateCalendar();
   return useMutation({ mutationFn: calendar.importCalendar, onSuccess: invalidate });
 }
+
+export function useStopCalendarRecurrence() {
+  const invalidate = useInvalidateCalendar();
+  return useMutation({ mutationFn: calendar.stopEventRecurrence, onSuccess: invalidate });
+}

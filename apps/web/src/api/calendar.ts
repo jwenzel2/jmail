@@ -20,6 +20,9 @@ export const updateEvent = (id: string, patch: CalendarEventUpdate) =>
 export const deleteEvent = (id: string) =>
   apiSend<{ ok: boolean }>('DELETE', `/api/calendar/events/${encodeURIComponent(id)}`);
 
+export const stopEventRecurrence = (id: string) =>
+  apiSend<CalendarEvent>('POST', `/api/calendar/events/${encodeURIComponent(id)}/stop-recurrence`);
+
 export const importCalendar = (content: string) =>
   apiSend<{ imported: number }>('POST', '/api/calendar/import', { content });
 

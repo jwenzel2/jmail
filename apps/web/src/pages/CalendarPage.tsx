@@ -1,4 +1,4 @@
-import type { CalendarEvent, CalendarEventInput } from '@jmail/shared';
+import type { CalendarEvent, CalendarEventInput, RecurrenceFrequency } from '@jmail/shared';
 import {
   ActionIcon,
   Badge,
@@ -7,8 +7,10 @@ import {
   Card,
   Checkbox,
   FileButton,
+  Flex,
   Group,
   Modal,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -25,20 +27,37 @@ import {
   IconFileImport,
   IconMapPin,
   IconPlus,
+  IconRepeat,
+  IconRepeatOff,
   IconTrash,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { calendarExportUrl, eventExportUrl } from '../api/calendar';
 import {
   useCalendarEvents,
   useCreateCalendarEvent,
   useDeleteCalendarEvent,
   useImportCalendar,
+  useStopCalendarRecurrence,
   useUpdateCalendarEvent,
 } from '../hooks/useCalendar';
 
 const DAY_MS = 86_400_000;
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const RECURRENCE_OPTIONS: { value: RecurrenceFrequency | 'none'; label: string }[] = [
+  { value: 'none', label: 'Does not repeat' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly', label: 'Yearly' },
+];
+
+const recurrenceLabel = (freq: RecurrenceFrequency): string =>
+  ({ daily: 'Repeats daily', weekly: 'Repeats weekly', monthly: 'Repeats monthly', yearly: 'Repeats yearly' })[
+    freq
+  ];
 
 const pad = (value: number) => String(value).padStart(2, '0');
 const localDate = (date: Date) =>
@@ -59,6 +78,7 @@ function emptyEvent(date: Date): CalendarEventInput {
     startsAt: start.toISOString(),
     endsAt: new Date(start.getTime() + 3_600_000).toISOString(),
     allDay: false,
+    recurrence: null,
   };
 }
 
@@ -94,7 +114,27 @@ function EventEditor({
   const create = useCreateCalendarEvent();
   const update = useUpdateCalendarEvent();
   const remove = useDeleteCalendarEvent();
+  const stopRecurrence = useStopCalendarRecurrence();
   const saving = create.isPending || update.isPending;
+  const isRecurring = Boolean(event?.recurrence);
+
+  const stopHere = () => {
+    if (!event) return;
+    if (
+      !window.confirm(
+        'Stop repeating from this event onward? This event and earlier ones stay; all later occurrences are deleted.',
+      )
+    ) {
+      return;
+    }
+    stopRecurrence.mutate(event.id, {
+      onSuccess: () => {
+        notifications.show({ color: 'green', message: 'Repetition stopped from this event onward.' });
+        onClose();
+      },
+      onError: () => notifications.show({ color: 'red', message: 'Could not update recurrence.' }),
+    });
+  };
 
   useEffect(() => {
     if (opened) setForm(event ?? emptyEvent(initialDate));
@@ -183,6 +223,37 @@ function EventEditor({
             onChange={(e) => setDateValue('endsAt', e.currentTarget.value)}
           />
         </Group>
+        {isRecurring ? (
+          <Group justify="space-between" wrap="nowrap" gap="xs">
+            <Group gap={6} wrap="nowrap">
+              <IconRepeat size={16} />
+              <Text size="sm">{recurrenceLabel(event!.recurrence!)}</Text>
+            </Group>
+            <Button
+              variant="light"
+              color="orange"
+              size="xs"
+              leftSection={<IconRepeatOff size={16} />}
+              loading={stopRecurrence.isPending}
+              onClick={stopHere}
+            >
+              Stop repeating from here
+            </Button>
+          </Group>
+        ) : (
+          <Select
+            label="Repeat"
+            data={RECURRENCE_OPTIONS}
+            value={form.recurrence ?? 'none'}
+            allowDeselect={false}
+            onChange={(value) =>
+              setForm({
+                ...form,
+                recurrence: value && value !== 'none' ? (value as RecurrenceFrequency) : null,
+              })
+            }
+          />
+        )}
         <TextInput
           label="Location"
           value={form.location ?? ''}
@@ -228,6 +299,7 @@ function EventEditor({
 }
 
 export function CalendarPage() {
+  const isMobile = useIsMobile();
   const [month, setMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
@@ -263,7 +335,7 @@ export function CalendarPage() {
   };
 
   return (
-    <Box p="lg">
+    <Box p={isMobile ? 'sm' : 'lg'}>
       <Stack>
         <Group justify="space-between">
           <Group>
@@ -291,59 +363,67 @@ export function CalendarPage() {
               {new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(month)}
             </Text>
           </Group>
-          <Group>
+          <Group gap="xs">
             <FileButton onChange={importFile} accept=".ics,text/calendar">
               {(props) => (
                 <Button
                   {...props}
+                  size={isMobile ? 'xs' : 'sm'}
                   variant="default"
                   leftSection={<IconFileImport size={16} />}
                   loading={importer.isPending}
                 >
-                  Import .ics
+                  {isMobile ? 'Import' : 'Import .ics'}
                 </Button>
               )}
             </FileButton>
             <Button
               component="a"
               href={calendarExportUrl}
+              size={isMobile ? 'xs' : 'sm'}
               variant="default"
               leftSection={<IconDownload size={16} />}
             >
-              Export .ics
+              {isMobile ? 'Export' : 'Export .ics'}
             </Button>
             <Button
+              size={isMobile ? 'xs' : 'sm'}
               leftSection={<IconPlus size={16} />}
               onClick={() => setEditor({ opened: true, event: null })}
             >
-              New event
+              {isMobile ? 'New' : 'New event'}
             </Button>
           </Group>
         </Group>
 
-        <Group align="stretch" wrap="nowrap" gap="md">
+        <Flex direction={isMobile ? 'column' : 'row'} align="stretch" gap="md">
           <Card withBorder p={0} style={{ flex: 1, minWidth: 0 }}>
             <SimpleGrid cols={7} spacing={0}>
               {WEEKDAYS.map((day) => (
                 <Text key={day} ta="center" py={6} size="xs" fw={600} c="dimmed">
-                  {day}
+                  {/* On phones a single letter keeps the 7 columns from crowding. */}
+                  {isMobile ? day.charAt(0) : day}
                 </Text>
               ))}
               {days.map((day) => {
                 const key = localDate(day);
-                const dayEvents = list.filter((event) => eventOccursOn(event, day)).slice(0, 3);
+                const dayHits = list.filter((event) => eventOccursOn(event, day));
+                const dayEvents = dayHits.slice(0, 3);
                 const active = key === localDate(selectedDate);
                 return (
                   <UnstyledButton
                     key={key}
                     onClick={() => setSelectedDate(day)}
-                    p={6}
-                    mih={105}
+                    p={isMobile ? 4 : 6}
+                    mih={isMobile ? 52 : 105}
                     style={{
                       borderTop: '1px solid var(--mantine-color-default-border)',
                       borderRight: '1px solid var(--mantine-color-default-border)',
                       backgroundColor: active ? 'var(--mantine-primary-color-light)' : undefined,
                       opacity: day.getMonth() === month.getMonth() ? 1 : 0.55,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isMobile ? 'center' : 'stretch',
                     }}
                   >
                     <Badge
@@ -354,31 +434,50 @@ export function CalendarPage() {
                     >
                       {day.getDate()}
                     </Badge>
-                    <Stack gap={3}>
-                      {dayEvents.map((event) => (
-                        <Text
-                          key={event.id}
-                          size="xs"
-                          truncate
-                          px={4}
-                          bg="var(--mantine-primary-color-light)"
-                        >
-                          {eventTime(event)} · {event.title}
-                        </Text>
-                      ))}
-                      {list.filter((event) => eventOccursOn(event, day)).length > 3 ? (
-                        <Text size="xs" c="dimmed">
-                          More…
-                        </Text>
-                      ) : null}
-                    </Stack>
+                    {isMobile ? (
+                      // Compact dot indicators — details live in the agenda below.
+                      dayHits.length > 0 ? (
+                        <Group gap={3} justify="center" wrap="nowrap">
+                          {dayEvents.map((event) => (
+                            <Box
+                              key={event.id}
+                              w={5}
+                              h={5}
+                              style={{
+                                borderRadius: '50%',
+                                backgroundColor: 'var(--mantine-primary-color-filled)',
+                              }}
+                            />
+                          ))}
+                        </Group>
+                      ) : null
+                    ) : (
+                      <Stack gap={3}>
+                        {dayEvents.map((event) => (
+                          <Text
+                            key={event.id}
+                            size="xs"
+                            truncate
+                            px={4}
+                            bg="var(--mantine-primary-color-light)"
+                          >
+                            {eventTime(event)} · {event.title}
+                          </Text>
+                        ))}
+                        {dayHits.length > 3 ? (
+                          <Text size="xs" c="dimmed">
+                            More…
+                          </Text>
+                        ) : null}
+                      </Stack>
+                    )}
                   </UnstyledButton>
                 );
               })}
             </SimpleGrid>
           </Card>
 
-          <Card withBorder w={310}>
+          <Card withBorder w={isMobile ? '100%' : 310}>
             <Stack>
               <Group justify="space-between">
                 <div>
@@ -404,9 +503,14 @@ export function CalendarPage() {
                 selectedEvents.map((event) => (
                   <UnstyledButton key={event.id} onClick={() => setEditor({ opened: true, event })}>
                     <Card withBorder p="sm">
-                      <Text size="xs" c="dimmed">
-                        {eventTime(event)}
-                      </Text>
+                      <Group gap={6} wrap="nowrap">
+                        <Text size="xs" c="dimmed">
+                          {eventTime(event)}
+                        </Text>
+                        {event.recurrence ? (
+                          <IconRepeat size={12} color="var(--mantine-color-dimmed)" />
+                        ) : null}
+                      </Group>
                       <Text fw={600}>{event.title}</Text>
                       {event.location ? (
                         <Group gap={4} mt={4}>
@@ -426,7 +530,7 @@ export function CalendarPage() {
               )}
             </Stack>
           </Card>
-        </Group>
+        </Flex>
       </Stack>
 
       <EventEditor
