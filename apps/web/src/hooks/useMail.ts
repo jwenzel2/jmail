@@ -85,11 +85,19 @@ export function useMessageAction() {
   return useMutation({
     mutationFn: (action: MessageAction) => mail.applyAction(action),
     onSuccess: (_, action) => {
-      void qc.invalidateQueries({ queryKey: ['messages', action.folder] });
+      // MOVE/DELETE updates the API's source-folder cache in place. Refetch only
+      // active source views; inactive pages can remain cached until revisited.
+      void qc.invalidateQueries({
+        queryKey: ['messages', action.folder],
+        refetchType: 'active',
+      });
       if (action.targetFolder) {
-        void qc.invalidateQueries({ queryKey: ['messages', action.targetFolder] });
+        void qc.invalidateQueries({
+          queryKey: ['messages', action.targetFolder],
+          refetchType: 'none',
+        });
       }
-      void qc.invalidateQueries({ queryKey: ['search', action.folder] });
+      void qc.invalidateQueries({ queryKey: ['search', action.folder], refetchType: 'active' });
       void qc.invalidateQueries({ queryKey: ['folders'] });
     },
   });

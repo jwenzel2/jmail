@@ -1,6 +1,18 @@
 import type { FolderRole, MailFolder } from '@jmail/shared';
 import { withImap } from './imapPool.js';
 
+interface CachedFolderRoles {
+  roles: Map<FolderRole, string>;
+  ts: number;
+}
+
+const folderRoleCache = new Map<string, CachedFolderRoles>();
+const FOLDER_ROLE_CACHE_TTL_MS = 5 * 60_000;
+
+function roleCacheKey(sid: string, email: string): string {
+  return `${sid}\x00${email}`;
+}
+
 function mapRole(specialUse: string | undefined, path: string): FolderRole {
   switch (specialUse) {
     case '\\All':
@@ -47,6 +59,20 @@ export async function getFolderByRole(
   email: string,
   role: FolderRole,
 ): Promise<string | null> {
-  const folders = await listFolders(sid, email);
-  return folders.find((f) => f.role === role)?.path ?? null;
+  const key = roleCacheKey(sid, email);
+  const cached = folderRoleCache.get(key);
+  if (cached && Date.now() - cached.ts <= FOLDER_ROLE_CACHE_TTL_MS) {
+    return cached.roles.get(role) ?? null;
+  }
+
+  // Role resolution does not need per-folder message/unread counts. Avoid the
+  // much more expensive LIST ... STATUS request used by the folder sidebar.
+  const roles = await withImap(sid, email, async (client) => {
+    const listed = await client.list();
+    return new Map(
+      listed.map((folder) => [mapRole(folder.specialUse, folder.path), folder.path] as const),
+    );
+  });
+  folderRoleCache.set(key, { roles, ts: Date.now() });
+  return roles.get(role) ?? null;
 }

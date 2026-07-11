@@ -295,6 +295,30 @@ export function invalidateFolderCache(sid: string, email: string): void {
   }
 }
 
+/** Drops cached listings for one folder while preserving unrelated folders. */
+function invalidateMessageFolderCache(sid: string, email: string, folder: string): void {
+  const prefix = `${sid}\x00${email}\x00${folder}\x00`;
+  for (const key of messageCache.keys()) {
+    if (key.startsWith(prefix)) messageCache.delete(key);
+  }
+}
+
+/** Removes messages from every cached view of a source folder after MOVE/DELETE. */
+function removeCachedMessages(
+  sid: string,
+  email: string,
+  folder: string,
+  uids: readonly number[],
+): void {
+  const prefix = `${sid}\x00${email}\x00${folder}\x00`;
+  const removed = new Set(uids);
+  for (const [key, entry] of messageCache) {
+    if (!key.startsWith(prefix)) continue;
+    entry.messages = entry.messages.filter((message) => !removed.has(message.uid));
+    entry.ts = Date.now();
+  }
+}
+
 /**
  * Updates the 'all' cache bucket to reflect a message being marked \Seen,
  * and drops any flag-filter buckets that are now stale (e.g. 'unread').
@@ -669,7 +693,20 @@ export async function applyAction(
       lock.release();
     }
   });
-  invalidateFolderCache(sid, email);
+
+  if (action.action === 'delete') {
+    removeCachedMessages(sid, email, action.folder, action.uids);
+    if (trash && trash !== action.folder) {
+      // Destination UIDs are server-assigned, so its cached listing cannot be
+      // updated from the source UIDs and must be refreshed on next visit.
+      invalidateMessageFolderCache(sid, email, trash);
+    }
+  } else if (action.action === 'move' && action.targetFolder) {
+    removeCachedMessages(sid, email, action.folder, action.uids);
+    invalidateMessageFolderCache(sid, email, action.targetFolder);
+  } else {
+    invalidateFolderCache(sid, email);
+  }
 }
 
 /** Searches messages by subject, sender, and recipient. */
