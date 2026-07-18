@@ -85,6 +85,34 @@ export function useMessageAction() {
   return useMutation({
     mutationFn: (action: MessageAction) => mail.applyAction(action),
     onSuccess: (_, action) => {
+      // Do not leave successfully moved/deleted messages visible while the
+      // authoritative refetch is waiting on IMAP. Update every cached source
+      // view synchronously; the invalidations below then fill the page back up
+      // and reconcile totals in the background.
+      if (action.action === 'delete' || action.action === 'move') {
+        const removed = new Set(action.uids);
+        const removeFromView = (view: MessageListResponse | undefined) => {
+          if (!view) return view;
+          const messages = view.messages.filter((message) => !removed.has(message.uid));
+          const removedFromPage = view.messages.length - messages.length;
+          if (removedFromPage === 0) return view;
+          return {
+            ...view,
+            messages,
+            total: Math.max(0, view.total - removedFromPage),
+          };
+        };
+
+        qc.setQueriesData<MessageListResponse>(
+          { queryKey: ['messages', action.folder] },
+          removeFromView,
+        );
+        qc.setQueriesData<MessageListResponse>(
+          { queryKey: ['search', action.folder] },
+          removeFromView,
+        );
+      }
+
       // MOVE/DELETE updates the API's source-folder cache in place. Refetch only
       // active source views; inactive pages can remain cached until revisited.
       void qc.invalidateQueries({
