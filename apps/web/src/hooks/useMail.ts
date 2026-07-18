@@ -84,12 +84,23 @@ export function useMessageAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (action: MessageAction) => mail.applyAction(action),
-    onSuccess: (_, action) => {
-      // Do not leave successfully moved/deleted messages visible while the
-      // authoritative refetch is waiting on IMAP. Update every cached source
-      // view synchronously; the invalidations below then fill the page back up
-      // and reconcile totals in the background.
+    onMutate: async (action) => {
+      // MOVE/DELETE can take a while to finish on the IMAP server. Remove the
+      // affected rows before awaiting that request so the mailbox responds as
+      // soon as the user clicks. Keep snapshots so a failed operation can be
+      // rolled back without losing the current view.
       if (action.action === 'delete' || action.action === 'move') {
+        await Promise.all([
+          qc.cancelQueries({ queryKey: ['messages', action.folder] }),
+          qc.cancelQueries({ queryKey: ['search', action.folder] }),
+        ]);
+
+        const messageViews = qc.getQueriesData<MessageListResponse>({
+          queryKey: ['messages', action.folder],
+        });
+        const searchViews = qc.getQueriesData<MessageListResponse>({
+          queryKey: ['search', action.folder],
+        });
         const removed = new Set(action.uids);
         const removeFromView = (view: MessageListResponse | undefined) => {
           if (!view) return view;
@@ -111,8 +122,17 @@ export function useMessageAction() {
           { queryKey: ['search', action.folder] },
           removeFromView,
         );
+
+        return { messageViews, searchViews };
       }
 
+      return undefined;
+    },
+    onError: (_error, _action, context) => {
+      context?.messageViews.forEach(([queryKey, data]) => qc.setQueryData(queryKey, data));
+      context?.searchViews.forEach(([queryKey, data]) => qc.setQueryData(queryKey, data));
+    },
+    onSuccess: (_, action) => {
       // MOVE/DELETE updates the API's source-folder cache in place. Refetch only
       // active source views; inactive pages can remain cached until revisited.
       void qc.invalidateQueries({
