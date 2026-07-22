@@ -24,6 +24,14 @@ describe('parseDumpMagic', () => {
     expect(s.trained).toBe(false);
   });
 
+  it('accepts dump layouts with fewer leading columns', () => {
+    const s = parseDumpMagic(
+      `0.000 8 0 non-token data: nspam\n0.000 350 0 non-token data: nham`,
+    );
+    expect(s.nSpam).toBe(8);
+    expect(s.nHam).toBe(350);
+  });
+
   it('returns zeros for empty output', () => {
     expect(parseDumpMagic('')).toEqual({
       nSpam: 0,

@@ -12,9 +12,12 @@ export function parseDumpMagic(output: string): BayesStats {
   for (const line of output.split('\n')) {
     const m = line.match(/non-token data:\s*(.+)$/);
     if (!m) continue;
-    const name = (m[1] as string).trim();
-    const cols = line.trim().split(/\s+/);
-    const value = Number(cols[2] ?? '0');
+    const name = (m[1] as string).trim().toLowerCase();
+    // The value is the last numeric column before "non-token data". Avoid a
+    // fixed column index because dump layouts differ across SA releases.
+    const prefix = line.slice(0, m.index).trim();
+    const numeric = prefix.match(/[-+]?\d+(?:\.\d+)?/g) ?? [];
+    const value = Number(numeric.at(-2) ?? numeric.at(-1) ?? 'NaN');
     if (name === 'bayes db version') stats.dbVersion = Number.isFinite(value) ? value : null;
     const field = MAGIC_FIELDS[name];
     if (field) stats[field] = Number.isFinite(value) ? value : 0;

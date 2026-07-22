@@ -1,7 +1,7 @@
 import type { BayesStats, GlobalSpamConfig, LintResult, SenderListEntry } from '@jmail/shared';
 import { execFile } from 'node:child_process';
 import { copyFile, readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
 import { parseDumpMagic } from './parseMagic.js';
@@ -43,15 +43,23 @@ export async function getBayesStats(user?: string): Promise<BayesStats> {
   const [bin, base] = cmd(config.SA_LEARN_CMD);
   const args = [...base, '--dump', 'magic'];
   if (user) args.push('-u', user);
-  const { stdout } = await run(bin, args);
+  const { code, stdout, stderr } = await run(bin, args);
+  if (code !== 0) {
+    throw new Error(`sa-learn --dump magic failed: ${stderr.trim() || `exit ${code}`}`);
+  }
   return parseDumpMagic(stdout);
 }
 
 // ── Per-user allow/block lists (whitelist_from / blacklist_from in user_prefs) ──
 
 function userPrefsPath(user: string): string {
-  // Site layouts vary; this matches the common per-user prefs location.
-  return join(config.SA_USER_PREFS_DIR, user, 'user_prefs');
+  const base = resolve(config.SA_USER_PREFS_DIR);
+  const path = resolve(base, user, 'user_prefs');
+  const rel = relative(base, path);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('Invalid SpamAssassin user key');
+  }
+  return path;
 }
 
 const LIST_DIRECTIVE: Record<SenderListEntry['list'], string> = {

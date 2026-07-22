@@ -18,7 +18,14 @@ export type BayesStats = z.infer<typeof bayesStatsSchema>;
 /** A single per-user allow/block list entry (whitelist_from / blacklist_from). */
 export const senderListEntrySchema = z.object({
   /** Email address or glob, e.g. "*@example.com". */
-  pattern: z.string().min(1),
+  pattern: z
+    .string()
+    .trim()
+    .min(1)
+    .max(320)
+    // Each entry is emitted as one SpamAssassin directive. Newlines would let
+    // an otherwise unprivileged user inject arbitrary user_prefs directives.
+    .refine((value) => !/[\r\n\0]/.test(value), 'Sender pattern must be a single line'),
   list: z.enum(['allow', 'block']),
 });
 export type SenderListEntry = z.infer<typeof senderListEntrySchema>;
@@ -31,7 +38,7 @@ export type UserSpamSettings = z.infer<typeof userSpamSettingsSchema>;
 
 /** Payload to replace a user's allow/block lists. */
 export const senderListUpdateSchema = z.object({
-  entries: z.array(senderListEntrySchema),
+  entries: z.array(senderListEntrySchema).max(500),
 });
 export type SenderListUpdate = z.infer<typeof senderListUpdateSchema>;
 
@@ -60,6 +67,6 @@ export const agentHealthSchema = z.object({
 export type AgentHealth = z.infer<typeof agentHealthSchema>;
 
 export const agentApplyConfigSchema = z.object({
-  content: z.string(),
+  content: z.string().max(1024 * 1024),
 });
 export type AgentApplyConfig = z.infer<typeof agentApplyConfigSchema>;

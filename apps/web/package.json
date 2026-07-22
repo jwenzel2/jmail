@@ -17,7 +17,7 @@
     "@mantine/notifications": "^7.15.2",
     "@tabler/icons-react": "^3.26.0",
     "@tanstack/react-query": "^5.62.11",
-    "dompurify": "^3.2.3",
+    "dompurify": "^3.4.12",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.1.1"
