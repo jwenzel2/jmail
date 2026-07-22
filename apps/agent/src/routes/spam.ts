@@ -15,7 +15,11 @@ import {
   validateGlobalConfig,
 } from '../spam/saTools.js';
 
-const userParams = z.object({ user: z.string().min(1) });
+// The API uses the authenticated user's email as SpamAssassin's user key.
+// Keeping the agent contract equally strict prevents path traversal and
+// option-like values even if the agent is called directly with its token.
+const spamUser = z.string().email().max(320);
+const userParams = z.object({ user: spamUser });
 
 export async function spamRoutes(app: FastifyInstance): Promise<void> {
   app.get('/health', async (): Promise<AgentHealth> => {
@@ -24,7 +28,7 @@ export async function spamRoutes(app: FastifyInstance): Promise<void> {
 
   // Bayes stats for a user (or global if omitted).
   app.get('/bayes/stats', async (req) => {
-    const { user } = z.object({ user: z.string().optional() }).parse(req.query);
+    const { user } = z.object({ user: spamUser.optional() }).parse(req.query);
     return getBayesStats(user);
   });
 
