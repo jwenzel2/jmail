@@ -16,14 +16,22 @@ export async function createSession(userId: string): Promise<string> {
   return sid;
 }
 
-/** Returns the user for a non-expired session, or null. */
+/**
+ * Returns the user for a non-expired session and renews its inactivity window,
+ * or null when the session has already expired.
+ */
 export async function getSessionUser(sid: string): Promise<CurrentUser | null> {
   const { rows } = await pool.query<CurrentUser>(
-    `select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin"
-       from sessions s
-       join users u on u.id = s.user_id
-      where s.sid = $1 and s.expires_at > now()`,
-    [sid],
+    `with renewed as (
+       update sessions
+          set expires_at = now() + ($2 || ' seconds')::interval
+        where sid = $1 and expires_at > now()
+        returning user_id
+     )
+     select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin"
+       from renewed r
+       join users u on u.id = r.user_id`,
+    [sid, SESSION_TTL_SECONDS],
   );
   return rows[0] ?? null;
 }

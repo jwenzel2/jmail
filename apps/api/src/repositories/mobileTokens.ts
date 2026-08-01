@@ -2,7 +2,9 @@ import type { CurrentUser, MobileTokenResponse } from '@jmail/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '../db.js';
 
-const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+import { SESSION_TTL_SECONDS } from './sessions.js';
+
+const TOKEN_TTL_SECONDS = SESSION_TTL_SECONDS;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -22,11 +24,28 @@ export async function getMobileTokenSession(
   token: string,
 ): Promise<{ user: CurrentUser; sid: string } | null> {
   const { rows } = await pool.query<CurrentUser & { sid: string }>(
-    `update mobile_tokens t set last_used_at = now()
-       from users u
-      where t.token_hash = $1 and t.expires_at > now() and u.id = t.user_id
-      returning u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin", t.sid`,
-    [hashToken(token)],
+    `with active as (
+       select t.token_hash, t.user_id, t.sid
+         from mobile_tokens t
+         join sessions s on s.sid = t.sid
+        where t.token_hash = $1 and t.expires_at > now() and s.expires_at > now()
+     ), renewed_token as (
+       update mobile_tokens t
+          set last_used_at = now(), expires_at = now() + ($2 || ' seconds')::interval
+         from active a
+        where t.token_hash = a.token_hash
+        returning a.user_id, a.sid
+     ), renewed_session as (
+       update sessions s
+          set expires_at = now() + ($2 || ' seconds')::interval
+         from renewed_token t
+        where s.sid = t.sid
+        returning t.user_id, t.sid
+     )
+     select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin", r.sid
+       from renewed_session r
+       join users u on u.id = r.user_id`,
+    [hashToken(token), TOKEN_TTL_SECONDS],
   );
   const row = rows[0];
   if (!row) return null;

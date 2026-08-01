@@ -42,7 +42,7 @@ export const sessionPlugin = fp(async (app) => {
   app.decorateRequest('currentUser', null);
   app.decorateRequest('sessionId', null);
 
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     const raw = req.cookies[COOKIE_NAME];
     if (raw) {
       const unsigned = req.unsignCookie(raw);
@@ -51,6 +51,10 @@ export const sessionPlugin = fp(async (app) => {
         if (user) {
           req.currentUser = user;
           req.sessionId = unsigned.value;
+          reply.setCookie(COOKIE_NAME, unsigned.value, {
+            ...cookieOptions,
+            maxAge: SESSION_TTL_SECONDS,
+          });
           return;
         }
       }
