@@ -2,9 +2,8 @@ import type { CurrentUser, MobileTokenResponse } from '@jmail/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { pool } from '../db.js';
 
-import { SESSION_TTL_SECONDS } from './sessions.js';
-
-const TOKEN_TTL_SECONDS = SESSION_TTL_SECONDS;
+/** Mobile installs are long-lived credentials, unlike seven-day browser cookies. */
+const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -27,8 +26,7 @@ export async function getMobileTokenSession(
     `with active as (
        select t.token_hash, t.user_id, t.sid
          from mobile_tokens t
-         join sessions s on s.sid = t.sid
-        where t.token_hash = $1 and t.expires_at > now() and s.expires_at > now()
+        where t.token_hash = $1 and t.expires_at > now()
      ), renewed_token as (
        update mobile_tokens t
           set last_used_at = now(), expires_at = now() + ($2 || ' seconds')::interval
