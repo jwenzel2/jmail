@@ -35,6 +35,23 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(sensible);
   await app.register(sessionPlugin);
 
+  // Authenticated responses must never be reused from a browser, proxy, or CDN
+  // after the session cookie changes. Without this, one browser can remain on
+  // an old inbox across logout, login, and even a hard page refresh.
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.url.startsWith('/api/') || req.url.startsWith('/auth/')) {
+      reply.header('cache-control', 'private, no-store, max-age=0');
+      reply.header('pragma', 'no-cache');
+      reply.header('expires', '0');
+      const existingVary = reply.getHeader('vary');
+      reply.header(
+        'vary',
+        `${typeof existingVary === 'string' ? `${existingVary}, ` : ''}Cookie, Authorization`,
+      );
+    }
+    return payload;
+  });
+
   app.setErrorHandler(async (error, req, reply) => {
     if (error instanceof OAuthReauthenticationRequiredError) {
       req.log.info({ err: error.cause }, 'OAuth grant expired; ending local session');

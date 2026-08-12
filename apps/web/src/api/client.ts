@@ -37,7 +37,12 @@ async function readError(res: Response, fallback: string): Promise<never> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(path, { credentials: 'include' });
+  const res = await fetch(path, {
+    credentials: 'include',
+    // Authenticated resources are session-specific and may change without the
+    // URL changing. Never satisfy them from the browser's HTTP cache.
+    cache: 'no-store',
+  });
   notifyIfUnauthorized(res);
   if (!res.ok) await readError(res, `GET ${path} failed: ${res.status}`);
   return (await res.json()) as T;
