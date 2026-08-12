@@ -28,7 +28,12 @@ export function useMailEvents() {
 }
 
 export function useFolders() {
-  return useQuery({ queryKey: ['folders'], queryFn: mail.getFolders });
+  return useQuery({
+    queryKey: ['folders'],
+    queryFn: mail.getFolders,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
 }
 
 export function useMessages(
@@ -42,6 +47,10 @@ export function useMessages(
     queryKey: ['messages', folder, page, pageSize, filter, sort],
     queryFn: () => mail.getMessages(folder, page, pageSize, filter, sort),
     placeholderData: (prev) => prev,
+    // IMAP IDLE/SSE is the fast path. Polling is the recovery path for proxies
+    // or mail servers that drop/disable long-lived IDLE connections.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 

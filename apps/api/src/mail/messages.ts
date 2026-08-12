@@ -229,6 +229,7 @@ interface CachedMessages {
 }
 
 const messageCache = new Map<string, CachedMessages>();
+const cacheGenerations = new Map<string, number>();
 const CACHE_TTL_MS = 60_000;
 // Hard cap on cached folder listings. Each 'all' entry can hold a full folder's
 // worth of summaries, so bound the total to keep memory predictable; the
@@ -237,6 +238,14 @@ const CACHE_MAX_ENTRIES = 200;
 
 function buildCacheKey(sid: string, email: string, folder: string, bucket: string): string {
   return `${sid}\x00${email}\x00${folder}\x00${bucket}`;
+}
+
+function generationKey(sid: string, email: string): string {
+  return [sid, email].join(String.fromCharCode(0));
+}
+
+function cacheGeneration(sid: string, email: string): number {
+  return cacheGenerations.get(generationKey(sid, email)) ?? 0;
 }
 
 function readCache(
@@ -289,6 +298,15 @@ cacheSweeper.unref();
 
 /** Clears all cached message lists for a session. Call after any mailbox mutation. */
 export function invalidateFolderCache(sid: string, email: string): void {
+  const generation = generationKey(sid, email);
+  const nextGeneration = (cacheGenerations.get(generation) ?? 0) + 1;
+  cacheGenerations.delete(generation);
+  cacheGenerations.set(generation, nextGeneration);
+  while (cacheGenerations.size > CACHE_MAX_ENTRIES) {
+    const oldest = cacheGenerations.keys().next().value;
+    if (oldest === undefined) break;
+    cacheGenerations.delete(oldest);
+  }
   const prefix = `${sid}\x00${email}\x00`;
   for (const key of messageCache.keys()) {
     if (key.startsWith(prefix)) messageCache.delete(key);
@@ -368,6 +386,7 @@ async function backgroundFillCache(sid: string, email: string, folder: string): 
   const key = `${sid}\x00${email}\x00${folder}`;
   if (backgroundFillInProgress.has(key) || readCache(sid, email, folder, 'all')) return;
   backgroundFillInProgress.add(key);
+  const startedAtGeneration = cacheGeneration(sid, email);
   try {
     await withSearchImap(sid, email, async (client) => {
       const lock = await client.getMailboxLock(folder);
@@ -377,7 +396,11 @@ async function backgroundFillCache(sid: string, email: string, folder: string): 
         for await (const msg of client.fetch('1:*', summaryFetchQuery)) {
           messages.push(toSummary(msg));
         }
-        writeCache(sid, email, folder, 'all', messages);
+        // A new-mail event may invalidate this folder while the full scan is
+        // running. Never let that older scan repopulate the cache afterward.
+        if (cacheGeneration(sid, email) === startedAtGeneration) {
+          writeCache(sid, email, folder, 'all', messages);
+        }
       } finally {
         lock.release();
       }

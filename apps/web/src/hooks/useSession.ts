@@ -17,7 +17,12 @@ export function useSession(): SessionState {
     retry: false,
   });
   useEffect(() => {
-    const invalidateAuth = () => qc.setQueryData<SessionInfo>(['me'], { user: null });
+    const invalidateAuth = () => {
+      // Mail query keys do not contain the session id. Remove all user-scoped
+      // data so a subsequent login cannot render the previous session's inbox.
+      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'branding' });
+      qc.setQueryData<SessionInfo>(['me'], { user: null });
+    };
     window.addEventListener(AUTH_INVALIDATED_EVENT, invalidateAuth);
     return () => window.removeEventListener(AUTH_INVALIDATED_EVENT, invalidateAuth);
   }, [qc]);
@@ -31,7 +36,10 @@ export function useLogout(): () => void {
     mutationFn: () => apiSend<{ ok: boolean }>('POST', '/auth/logout'),
     // The UI must always become signed out even if the request loses its
     // connection after the server has already cleared the session.
-    onSettled: () => qc.setQueryData<SessionInfo>(['me'], { user: null }),
+    onSettled: () => {
+      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'branding' });
+      qc.setQueryData<SessionInfo>(['me'], { user: null });
+    },
   });
   return () => mutation.mutate();
 }
