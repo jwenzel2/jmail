@@ -1,6 +1,7 @@
 import type { CurrentUser, SessionInfo } from '@jmail/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiSend } from '../api/client';
+import { useEffect } from 'react';
+import { apiGet, apiSend, AUTH_INVALIDATED_EVENT } from '../api/client';
 
 export interface SessionState {
   user: CurrentUser | null;
@@ -9,11 +10,17 @@ export interface SessionState {
 
 /** Reads the current session from the API. */
 export function useSession(): SessionState {
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['me'],
     queryFn: () => apiGet<SessionInfo>('/api/me'),
     retry: false,
   });
+  useEffect(() => {
+    const invalidateAuth = () => qc.setQueryData<SessionInfo>(['me'], { user: null });
+    window.addEventListener(AUTH_INVALIDATED_EVENT, invalidateAuth);
+    return () => window.removeEventListener(AUTH_INVALIDATED_EVENT, invalidateAuth);
+  }, [qc]);
   return { user: data?.user ?? null, isLoading };
 }
 
@@ -22,7 +29,9 @@ export function useLogout(): () => void {
   const qc = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => apiSend<{ ok: boolean }>('POST', '/auth/logout'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+    // The UI must always become signed out even if the request loses its
+    // connection after the server has already cleared the session.
+    onSettled: () => qc.setQueryData<SessionInfo>(['me'], { user: null }),
   });
   return () => mutation.mutate();
 }

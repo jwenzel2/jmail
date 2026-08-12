@@ -125,11 +125,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // End the session.
   app.post('/auth/logout', async (req, reply) => {
-    if (req.sessionId) {
-      await closeImap(req.sessionId);
-      if (req.currentUser) invalidateFolderCache(req.sessionId, req.currentUser.email);
-    }
+    const sid = req.sessionId;
+    const user = req.currentUser;
+    // Clear the session and browser cookie first. Closing a broken upstream
+    // connection is best-effort and must never prevent a user from signing out.
     await app.endSession(req, reply);
+    if (sid) {
+      if (user) invalidateFolderCache(sid, user.email);
+      void closeImap(sid).catch((err: unknown) => {
+        req.log.warn({ err }, 'failed to close IMAP connection during logout');
+      });
+    }
     return { ok: true };
   });
 

@@ -15,6 +15,7 @@ import { healthRoutes } from './routes/health.js';
 import { mailRoutes } from './routes/mail.js';
 import { mobileRoutes } from './routes/mobile.js';
 import { spamRoutes } from './routes/spam.js';
+import { OAuthReauthenticationRequiredError } from './services/tokens.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -33,6 +34,15 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(cookie, { secret: config.SESSION_SECRET });
   await app.register(sensible);
   await app.register(sessionPlugin);
+
+  app.setErrorHandler(async (error, req, reply) => {
+    if (error instanceof OAuthReauthenticationRequiredError) {
+      req.log.info({ err: error.cause }, 'OAuth grant expired; ending local session');
+      await app.endSession(req, reply);
+      return reply.code(401).send({ error: 'oauth_reauthentication_required' });
+    }
+    throw error;
+  });
 
   // Routes
   await app.register(healthRoutes);
