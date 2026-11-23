@@ -1,6 +1,6 @@
 import type { CurrentUser, MobileTokenResponse } from '@jmail/shared';
 import { createHash, randomBytes } from 'node:crypto';
-import { pool } from '../db.js';
+import { pool, expiresIn, transaction } from '../db.js';
 
 /** Mobile installs are long-lived credentials, unlike seven-day browser cookies. */
 const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -22,29 +22,27 @@ export async function createMobileToken(userId: string, sid: string): Promise<Mo
 export async function getMobileTokenSession(
   token: string,
 ): Promise<{ user: CurrentUser; sid: string } | null> {
-  const { rows } = await pool.query<CurrentUser & { sid: string }>(
-    `with active as (
-       select t.token_hash, t.user_id, t.sid
-         from mobile_tokens t
-        where t.token_hash = $1 and t.expires_at > now()
-     ), renewed_token as (
-       update mobile_tokens t
-          set last_used_at = now(), expires_at = now() + ($2 || ' seconds')::interval
-         from active a
-        where t.token_hash = a.token_hash
-        returning a.user_id, a.sid
-     ), renewed_session as (
-       update sessions s
-          set expires_at = now() + ($2 || ' seconds')::interval
-         from renewed_token t
-        where s.sid = t.sid
-        returning t.user_id, t.sid
-     )
-     select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin", r.sid
-       from renewed_session r
-       join users u on u.id = r.user_id`,
-    [hashToken(token), TOKEN_TTL_SECONDS],
-  );
+  const tokenHash = hashToken(token);
+  const rows = await transaction(async (client) => {
+    const active = await client.query<CurrentUser & { sid: string }>(
+      `select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin", t.sid
+       from mobile_tokens t join users u on u.id=t.user_id join sessions s on s.sid=t.sid
+       where t.token_hash=$1 and t.expires_at > now() for update`,
+      [tokenHash],
+    );
+    if (active.rows[0]) {
+      await client.query(
+        `update mobile_tokens set last_used_at=now(), expires_at=${expiresIn('$2')}
+        where token_hash=$1`,
+        [tokenHash, TOKEN_TTL_SECONDS],
+      );
+      await client.query(`update sessions set expires_at=${expiresIn('$2')} where sid=$1`, [
+        active.rows[0].sid,
+        TOKEN_TTL_SECONDS,
+      ]);
+    }
+    return active.rows;
+  });
   const row = rows[0];
   if (!row) return null;
   return {

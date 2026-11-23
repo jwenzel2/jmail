@@ -1,5 +1,5 @@
 import type { AuditEntry } from '@jmail/shared';
-import { pool } from '../db.js';
+import { pool, isMaria } from '../db.js';
 
 export interface AuditInput {
   userId: string | null;
@@ -30,7 +30,7 @@ export async function recordAudit(input: AuditInput): Promise<void> {
 
 export async function listAudit(limit = 100): Promise<AuditEntry[]> {
   const { rows } = await pool.query<AuditEntry>(
-    `select a.id::text as id,
+    `select ${isMaria ? 'cast(a.id as char)' : 'a.id::text'} as id,
             u.email as "userEmail",
             a.action,
             a.target,

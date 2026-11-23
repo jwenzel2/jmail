@@ -27,7 +27,12 @@ const envSchema = z.object({
   PUBLIC_URL: z.string().url().default('http://localhost:5173'),
   CORS_ORIGINS: csv,
 
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z
+    .string()
+    .regex(
+      /^(postgres(?:ql)?|mariadb):\/\//,
+      'Use a postgres://, postgresql:// or mariadb:// connection URL',
+    ),
 
   SESSION_SECRET: z.string().min(16),
   TOKEN_ENCRYPTION_KEY: z

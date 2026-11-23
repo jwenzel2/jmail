@@ -1,7 +1,7 @@
 [Unit]
 Description=jmail API (webmail backend / BFF)
 Documentation=https://github.com/your-org/jmail
-After=network-online.target postgresql.service
+After=network-online.target postgresql.service mariadb.service
 Wants=network-online.target
 
 [Service]

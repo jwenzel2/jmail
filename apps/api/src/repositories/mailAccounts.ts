@@ -6,7 +6,7 @@ import {
   type MailAccountUpdate,
 } from '@jmail/shared';
 import { encryptToken } from '../crypto.js';
-import { pool } from '../db.js';
+import { pool, transaction } from '../db.js';
 
 interface AccountRow {
   id: string;
@@ -84,8 +84,8 @@ export async function createMailAccount(
       input.smtpPort,
       input.username,
       input.secret ? encryptToken(input.secret) : null,
-      capabilities,
-      input.settings,
+      JSON.stringify(capabilities),
+      JSON.stringify(input.settings),
     ],
   );
   return mapAccount(rows[0] as AccountRow);
@@ -99,28 +99,31 @@ export async function updateMailAccount(
   const current = (await listMailAccounts(userId)).find((account) => account.id === id);
   if (!current) return null;
   const next = { ...current, ...patch, settings: patch.settings ?? current.settings };
-  const { rows } = await pool.query<AccountRow>(
-    `update mail_accounts set email=$1, display_name=$2, protocol=$3, auth_type=$4,
+  const { rows } = await transaction(async (client) => {
+    await client.query(
+      `update mail_accounts set email=$1, display_name=$2, protocol=$3, auth_type=$4,
        imap_host=$5, imap_port=$6, smtp_host=$7, smtp_port=$8, username=$9, enabled=$10,
        settings=$11, secret_enc=coalesce($12, secret_enc), updated_at=now()
-     where user_id=$13 and id=$14 returning ${COLUMNS}`,
-    [
-      next.email,
-      next.displayName,
-      next.protocol,
-      next.authType,
-      next.imapHost,
-      next.imapPort,
-      next.smtpHost,
-      next.smtpPort,
-      next.username,
-      next.enabled,
-      next.settings,
-      patch.secret ? encryptToken(patch.secret) : null,
-      userId,
-      id,
-    ],
-  );
+     where user_id=$13 and id=$14`,
+      [
+        next.email,
+        next.displayName,
+        next.protocol,
+        next.authType,
+        next.imapHost,
+        next.imapPort,
+        next.smtpHost,
+        next.smtpPort,
+        next.username,
+        next.enabled,
+        JSON.stringify(next.settings),
+        patch.secret ? encryptToken(patch.secret) : null,
+        userId,
+        id,
+      ],
+    );
+    return client.query<AccountRow>(`${SELECT} where user_id=$1 and id=$2`, [userId, id]);
+  });
   return rows[0] ? mapAccount(rows[0]) : null;
 }
 

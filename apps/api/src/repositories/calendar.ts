@@ -5,12 +5,11 @@ import type {
   RecurrenceFrequency,
 } from '@jmail/shared';
 import { randomUUID } from 'node:crypto';
-import type pg from 'pg';
-import { pool } from '../db.js';
+import { pool, transaction, upsertClause, type Client } from '../db.js';
 import type { ImportedCalendarEvent } from '../calendar/ics.js';
 
 /** Anything we can run a query on — the shared pool or a transaction client. */
-type Queryable = Pick<pg.Pool, 'query'>;
+type Queryable = Pick<Client, 'query'>;
 
 const SELECT_EVENT = `select id,
                              ical_uid as "icalUid",
@@ -112,8 +111,8 @@ async function insertSeriesInstances(
       fields.title,
       fields.description,
       fields.location,
-      start.toISOString(),
-      end.toISOString(),
+      start,
+      end,
       fields.allDay,
       seriesId,
       freq,
@@ -137,7 +136,7 @@ export async function listEvents(
     `${SELECT_EVENT}
       where user_id = $1 and starts_at < $3 and ends_at > $2
       order by starts_at, ends_at, lower(title)`,
-    [userId, from, to],
+    [userId, new Date(from), new Date(to)],
   );
   return rows.map(serializeDates);
 }
@@ -189,8 +188,8 @@ export async function createEvent(
         fields.title,
         fields.description,
         fields.location,
-        input.startsAt,
-        input.endsAt,
+        new Date(input.startsAt),
+        new Date(input.endsAt),
         fields.allDay,
         seriesId,
         freq,
@@ -223,14 +222,7 @@ export async function upsertImportedEvent(
     `insert into calendar_events
        (user_id, ical_uid, title, description, location, starts_at, ends_at, all_day)
      values ($1, $2, $3, $4, $5, $6, $7, $8)
-     on conflict (user_id, ical_uid) do update set
-       title = excluded.title,
-       description = excluded.description,
-       location = excluded.location,
-       starts_at = excluded.starts_at,
-       ends_at = excluded.ends_at,
-       all_day = excluded.all_day,
-       updated_at = now()
+     ${upsertClause(['user_id', 'ical_uid'], ['title', 'description', 'location', 'starts_at', 'ends_at', 'all_day'])}
      ${RETURNING}`,
     [
       userId,
@@ -238,8 +230,8 @@ export async function upsertImportedEvent(
       input.title.trim(),
       optional(input.description),
       optional(input.location),
-      input.startsAt,
-      input.endsAt,
+      new Date(input.startsAt),
+      new Date(input.endsAt),
       input.allDay,
     ],
   );
@@ -271,44 +263,49 @@ export async function updateEvent(
   const seriesId = convert ? randomUUID() : current.seriesId;
   const recurrence = convert ? patch.recurrence! : current.recurrence;
 
-  const { rows } = await pool.query<CalendarEvent>(
-    `update calendar_events
+  return transaction(async (client) => {
+    await client.query(
+      `update calendar_events
         set title = $3, description = $4, location = $5, starts_at = $6, ends_at = $7,
             all_day = $8, series_id = $9, recurrence = $10, updated_at = now()
-      where user_id = $1 and id = $2
-      ${RETURNING}`,
-    [
-      userId,
-      id,
-      next.title,
-      next.description,
-      next.location,
-      next.startsAt,
-      next.endsAt,
-      next.allDay,
-      seriesId,
-      recurrence,
-    ],
-  );
-  const saved = rows[0] ? serializeDates(rows[0]) : null;
-
-  if (saved && convert) {
-    await insertSeriesInstances(
-      pool,
-      userId,
-      seriesId as string,
-      recurrence as RecurrenceFrequency,
-      {
-        title: next.title,
-        description: next.description,
-        location: next.location,
-        allDay: next.allDay,
-      },
-      new Date(next.startsAt),
-      new Date(next.endsAt),
+      where user_id = $1 and id = $2`,
+      [
+        userId,
+        id,
+        next.title,
+        next.description,
+        next.location,
+        new Date(next.startsAt),
+        new Date(next.endsAt),
+        next.allDay,
+        seriesId,
+        recurrence,
+      ],
     );
-  }
-  return saved;
+    const { rows } = await client.query<CalendarEvent>(
+      `${SELECT_EVENT} where user_id=$1 and id=$2`,
+      [userId, id],
+    );
+    const saved = rows[0] ? serializeDates(rows[0]) : null;
+
+    if (saved && convert) {
+      await insertSeriesInstances(
+        client,
+        userId,
+        seriesId as string,
+        recurrence as RecurrenceFrequency,
+        {
+          title: next.title,
+          description: next.description,
+          location: next.location,
+          allDay: next.allDay,
+        },
+        new Date(next.startsAt),
+        new Date(next.endsAt),
+      );
+    }
+    return saved;
+  });
 }
 
 /**
@@ -327,7 +324,7 @@ export async function stopRecurrenceFrom(
   await pool.query(
     `delete from calendar_events
       where user_id = $1 and series_id = $2 and starts_at > $3`,
-    [userId, current.seriesId, current.startsAt],
+    [userId, current.seriesId, new Date(current.startsAt)],
   );
   await pool.query(
     `update calendar_events

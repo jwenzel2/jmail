@@ -1,7 +1,32 @@
 import type { DeviceRegistration } from '@jmail/shared';
-import { pool } from '../db.js';
+import { pool, isMaria, transaction } from '../db.js';
 
 export async function registerDevice(userId: string, device: DeviceRegistration): Promise<void> {
+  if (isMaria) {
+    // The token is independently unique. A collision with a different installation
+    // must fail instead of updating the other device via ON DUPLICATE KEY.
+    await transaction(async (client) => {
+      const args = [
+        userId,
+        device.installationId,
+        device.fcmToken,
+        device.deviceName,
+        device.notificationsEnabled,
+      ];
+      const { rowCount } = await client.query(
+        `update mobile_devices set fcm_token=$3, device_name=$4, notifications_enabled=$5, updated_at=now()
+         where user_id=$1 and installation_id=$2`,
+        args,
+      );
+      if (!rowCount)
+        await client.query(
+          `insert into mobile_devices (user_id, installation_id, fcm_token, device_name, notifications_enabled)
+         values ($1,$2,$3,$4,$5)`,
+          args,
+        );
+    });
+    return;
+  }
   await pool.query(
     `insert into mobile_devices
       (user_id, installation_id, fcm_token, device_name, notifications_enabled)

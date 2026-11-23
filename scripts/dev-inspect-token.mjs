@@ -2,18 +2,11 @@
 // claims, and calls Keycloak's userinfo endpoint to see what Dovecot would get.
 import { createDecipheriv } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import pg from '../apps/api/node_modules/pg/lib/index.js';
+import { createRequire } from 'node:module';
 
+const apiRequire = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const envFile = process.argv[2] || new URL('../.env', import.meta.url);
-const env = Object.fromEntries(
-  readFileSync(envFile, 'utf8')
-    .split('\n')
-    .filter((l) => l && !l.startsWith('#') && l.includes('='))
-    .map((l) => {
-      const i = l.indexOf('=');
-      return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-    }),
-);
+const env = apiRequire('dotenv').parse(readFileSync(envFile));
 
 function decrypt(payload, keyHex) {
   const key = Buffer.from(keyHex, 'hex');
@@ -26,11 +19,25 @@ function decrypt(payload, keyHex) {
   return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
 }
 
-const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
-const { rows } = await pool.query(
-  'select access_token_enc from oauth_tokens order by updated_at desc limit 1',
-);
-await pool.end();
+const sql = 'select access_token_enc from oauth_tokens order by updated_at desc limit 1';
+async function latestTokens() {
+  if (env.DATABASE_URL.startsWith('mariadb:')) {
+    const connection = await apiRequire('mariadb').createConnection(env.DATABASE_URL);
+    try {
+      return await connection.query(sql);
+    } finally {
+      await connection.end();
+    }
+  }
+  const client = new (apiRequire('pg').Client)({ connectionString: env.DATABASE_URL });
+  await client.connect();
+  try {
+    return (await client.query(sql)).rows;
+  } finally {
+    await client.end();
+  }
+}
+const rows = await latestTokens();
 if (!rows[0]) {
   console.error('no tokens stored');
   process.exit(1);
