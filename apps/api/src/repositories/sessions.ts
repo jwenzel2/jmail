@@ -1,6 +1,6 @@
 import type { CurrentUser } from '@jmail/shared';
 import { randomBytes } from 'node:crypto';
-import { pool } from '../db.js';
+import { pool, upsertClause, expiresIn, transaction } from '../db.js';
 import { decryptToken, encryptToken } from '../crypto.js';
 
 /** Session lifetime. Matches the cookie maxAge. */
@@ -10,7 +10,7 @@ export async function createSession(userId: string): Promise<string> {
   const sid = randomBytes(32).toString('base64url');
   await pool.query(
     `insert into sessions (sid, user_id, expires_at)
-     values ($1, $2, now() + ($3 || ' seconds')::interval)`,
+     values ($1, $2, ${expiresIn('$3')})`,
     [sid, userId, SESSION_TTL_SECONDS],
   );
   return sid;
@@ -21,19 +21,19 @@ export async function createSession(userId: string): Promise<string> {
  * or null when the session has already expired.
  */
 export async function getSessionUser(sid: string): Promise<CurrentUser | null> {
-  const { rows } = await pool.query<CurrentUser>(
-    `with renewed as (
-       update sessions
-          set expires_at = now() + ($2 || ' seconds')::interval
-        where sid = $1 and expires_at > now()
-        returning user_id
-     )
-     select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin"
-       from renewed r
-       join users u on u.id = r.user_id`,
-    [sid, SESSION_TTL_SECONDS],
-  );
-  return rows[0] ?? null;
+  return transaction(async (client) => {
+    const { rowCount } = await client.query(
+      `update sessions set expires_at = ${expiresIn('$2')} where sid = $1 and expires_at > now()`,
+      [sid, SESSION_TTL_SECONDS],
+    );
+    if (!rowCount) return null;
+    const { rows } = await client.query<CurrentUser>(
+      `select u.id, u.email, u.display_name as "displayName", u.is_admin as "isAdmin"
+       from sessions s join users u on u.id = s.user_id where s.sid = $1`,
+      [sid],
+    );
+    return rows[0] ?? null;
+  });
 }
 
 export async function deleteSession(sid: string): Promise<void> {
@@ -50,11 +50,7 @@ export async function saveTokens(sid: string, tokens: StoredTokens): Promise<voi
   await pool.query(
     `insert into oauth_tokens (sid, access_token_enc, access_token_expires_at, refresh_token_enc, updated_at)
      values ($1, $2, $3, $4, now())
-     on conflict (sid) do update set
-       access_token_enc = excluded.access_token_enc,
-       access_token_expires_at = excluded.access_token_expires_at,
-       refresh_token_enc = excluded.refresh_token_enc,
-       updated_at = now()`,
+     ${upsertClause(['sid'], ['access_token_enc', 'access_token_expires_at', 'refresh_token_enc'])}`,
     [
       sid,
       encryptToken(tokens.accessToken),

@@ -8,11 +8,12 @@ host when the SpamAssassin administration features are required.
 
 - Node.js 22 or newer
 - pnpm 9.15.9, normally enabled through Corepack
-- PostgreSQL
+- PostgreSQL or MariaDB 10.11 or later
+- Python 3 for the interactive setup wizard
 - Nginx or another static file server and reverse proxy
 - An OIDC provider and existing Dovecot/Postfix mail stack
 
-The host must be able to reach PostgreSQL, the OIDC provider, Dovecot, Postfix, and, when enabled,
+The host must be able to reach the selected database, the OIDC provider, Dovecot, Postfix, and, when enabled,
 the jmail agent. Configure the mail stack and OIDC provider using the examples under `packaging/`.
 
 ## AlmaLinux packages
@@ -20,7 +21,7 @@ the jmail agent. Configure the mail stack and OIDC provider using the examples u
 On AlmaLinux 9, install the base packages:
 
 ```bash
-dnf install -y curl git nginx postgresql-server openssl sudo policycoreutils-python-utils firewalld
+dnf install -y curl git nginx openssl sudo policycoreutils-python-utils firewalld
 ```
 
 Install Node.js 22 from the NodeSource 22 repository. Disable the AlmaLinux Node.js module first so
@@ -69,11 +70,9 @@ Installing pnpm directly is also supported if Corepack is unavailable:
 npm install --global pnpm@9.15.9
 ```
 
-Initialize and enable the AlmaLinux PostgreSQL service:
+Enable the web host services:
 
 ```bash
-postgresql-setup --initdb
-systemctl enable --now postgresql
 systemctl enable --now nginx firewalld
 ```
 
@@ -97,6 +96,35 @@ sudo -u jmail pnpm build
 
 Keep the repository's `node_modules` directory after building. The API loads its runtime
 dependencies from the pnpm workspace.
+
+## Provision the application database
+
+Use one of the following engines, either locally or on a reachable database host.
+
+### MariaDB 10.11 or later
+
+Start the MariaDB service on the database host and open its administrative SQL shell.
+For a local TCP deployment, create the database and application account:
+
+```sql
+CREATE DATABASE jmail CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE USER 'jmail'@'127.0.0.1' IDENTIFIED BY 'replace-with-a-strong-password';
+GRANT ALL PRIVILEGES ON jmail.* TO 'jmail'@'127.0.0.1';
+```
+
+For a remote database, use the API host as the permitted client address. Select MariaDB
+in the wizard or set `DATABASE_URL=mariadb://jmail:password@127.0.0.1:3306/jmail`.
+Percent-encode special characters in credentials when entering the URL manually.
+
+### PostgreSQL
+
+For a new local AlmaLinux PostgreSQL server, initialize the service:
+
+```bash
+dnf install -y postgresql-server
+postgresql-setup --initdb
+systemctl enable --now postgresql
+```
 
 Enter the PostgreSQL shell as its local administrator:
 
@@ -142,7 +170,20 @@ SELECT current_database(), current_user;
 
 ## Configure the API
 
-Create `/etc/jmail/api.env`, owned by root and readable by the `jmail` group:
+For a new deployment, run the wizard as root from the checkout:
+
+```bash
+python3 scripts/setup.py --production
+```
+
+Choose the database you provisioned above and enter its connection details, the public web URL,
+OIDC settings and mail hosts. The wizard generates the session secret and encryption key and
+creates an owner-only `/etc/jmail/api.env` for systemd. It exits if the file already exists.
+Back up this file along with the database so restored tokens can be decrypted.
+
+### Manual configuration
+
+Alternatively, on a fresh installation, create `/etc/jmail/api.env`, owned by root and readable by the `jmail` group:
 
 ```bash
 install -m 0640 -o root -g jmail /dev/null /etc/jmail/api.env
@@ -234,12 +275,12 @@ systemd-run --wait --pipe --collect \
 ```
 
 Common failures are a missing build under `/opt/jmail/apps/api/dist`, unreadable
-`/etc/jmail/api.env`, an invalid `TOKEN_ENCRYPTION_KEY`, or a rejected PostgreSQL login. Check those
+`/etc/jmail/api.env`, an invalid `TOKEN_ENCRYPTION_KEY`, or a rejected database login. Check those
 directly with:
 
 ```bash
 namei -l /opt/jmail/apps/api/dist/index.js
-sudo -u jmail test -r /etc/jmail/api.env
+test -r /etc/jmail/api.env
 sudo -u jmail psql 'postgresql://jmail:replace-with-a-strong-password@127.0.0.1:5432/jmail' \
   -c 'select current_database(), current_user'
 ```

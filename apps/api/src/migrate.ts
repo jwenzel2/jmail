@@ -11,10 +11,11 @@
  */
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
-import { config } from './config.js';
+import { createPool, isMaria, type Client } from './db.js';
 
-const MIGRATIONS_DIR = fileURLToPath(new URL('../../../migrations', import.meta.url));
+const MIGRATIONS_DIR = fileURLToPath(
+  new URL(isMaria ? '../../../migrations/mariadb' : '../../../migrations', import.meta.url),
+);
 const DOWN_MARKER = /^--\s*Down Migration\s*$/im;
 const UP_MARKER = /^--\s*Up Migration\s*$/im;
 
@@ -30,22 +31,31 @@ async function listMigrationFiles(): Promise<string[]> {
   return files.filter((f) => f.endsWith('.sql')).sort();
 }
 
-async function ensureTable(client: pg.PoolClient): Promise<void> {
+async function ensureTable(client: Client): Promise<void> {
+  if (isMaria) {
+    const { rows } = await client.query<{ acquired: number }>(
+      "select get_lock(concat('jmail:', left(sha2(database(),256),50)), 30) as acquired",
+    );
+    if (Number(rows[0]?.acquired) !== 1)
+      throw new Error('Timed out waiting for the migration lock');
+  } else {
+    await client.query("select pg_advisory_lock(hashtext('jmail migrations'))");
+  }
   await client.query(
     `create table if not exists schema_migrations (
-       name text primary key,
-       applied_at timestamptz not null default now()
+       name varchar(255) primary key,
+       applied_at ${isMaria ? 'datetime(3)' : 'timestamptz'} not null default now()
      )`,
   );
 }
 
-async function appliedSet(client: pg.PoolClient): Promise<Set<string>> {
+async function appliedSet(client: Client): Promise<Set<string>> {
   const { rows } = await client.query<{ name: string }>('select name from schema_migrations');
   return new Set(rows.map((r) => r.name));
 }
 
 async function up(): Promise<void> {
-  const pool = new pg.Pool({ connectionString: config.DATABASE_URL });
+  const pool = createPool(true);
   const client = await pool.connect();
   try {
     await ensureTable(client);
@@ -78,7 +88,7 @@ async function up(): Promise<void> {
 }
 
 async function down(): Promise<void> {
-  const pool = new pg.Pool({ connectionString: config.DATABASE_URL });
+  const pool = createPool(true);
   const client = await pool.connect();
   try {
     await ensureTable(client);
@@ -111,11 +121,16 @@ async function down(): Promise<void> {
 
 async function create(name: string): Promise<void> {
   if (!name) throw new Error('Usage: migrate create <name>');
-  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_');
   const file = `${Date.now()}_${slug}.sql`;
   const template = `-- Up Migration\n\n\n-- Down Migration\n\n`;
-  await writeFile(`${MIGRATIONS_DIR}/${file}`, template, { flag: 'wx' });
-  console.log(`Created migrations/${file}`);
+  for (const directory of ['../../../migrations/', '../../../migrations/mariadb/']) {
+    await writeFile(new URL(directory + file, import.meta.url), template, { flag: 'wx' });
+  }
+  console.log(`Created PostgreSQL and MariaDB migrations for ${file}`);
 }
 
 async function main(): Promise<void> {

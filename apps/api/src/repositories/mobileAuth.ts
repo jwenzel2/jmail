@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { pool } from '../db.js';
+import { pool, expiresIn } from '../db.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -18,7 +18,7 @@ export interface MobileAuthTransaction {
 export async function saveMobileAuthTransaction(tx: MobileAuthTransaction): Promise<void> {
   await pool.query(
     `insert into mobile_auth_transactions (state, verifier, nonce, redirect_uri, expires_at)
-     values ($1,$2,$3,$4,now() + interval '10 minutes')`,
+     values ($1,$2,$3,$4,${expiresIn('600')})`,
     [tx.state, tx.verifier, tx.nonce, tx.redirectUri],
   );
 }
@@ -38,8 +38,8 @@ export async function createMobileAuthCode(userId: string, sid: string): Promise
   const code = randomBytes(32).toString('base64url');
   await pool.query(
     `insert into mobile_auth_codes (code_hash, user_id, sid, expires_at)
-     values ($1,$2,$3,now() + ($4 || ' minutes')::interval)`,
-    [hash(code), userId, sid, MOBILE_AUTH_CODE_TTL_MINUTES],
+     values ($1,$2,$3,${expiresIn('$4')})`,
+    [hash(code), userId, sid, MOBILE_AUTH_CODE_TTL_MINUTES * 60],
   );
   return code;
 }

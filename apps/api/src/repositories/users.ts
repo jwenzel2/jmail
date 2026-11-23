@@ -1,5 +1,5 @@
 import type { CurrentUser } from '@jmail/shared';
-import { pool } from '../db.js';
+import { pool, transaction } from '../db.js';
 
 export interface UpsertUserInput {
   sub: string;
@@ -23,13 +23,20 @@ export async function upsertUser(input: UpsertUserInput): Promise<CurrentUser> {
   );
 
   if (existing.rows[0]) {
-    const { rows } = await pool.query<CurrentUser>(
-      `update users set oidc_sub = $1, email = $2, display_name = $3, is_admin = $4,
-              last_login_at = now()
-        where id = $5 ${RETURNING}`,
-      [input.sub, input.email, input.displayName, input.isAdmin, existing.rows[0].id],
-    );
-    return rows[0] as CurrentUser;
+    const id = existing.rows[0].id;
+    return transaction(async (client) => {
+      await client.query(
+        `update users set oidc_sub=$1, email=$2, display_name=$3, is_admin=$4, last_login_at=now()
+         where id=$5`,
+        [input.sub, input.email, input.displayName, input.isAdmin, id],
+      );
+      const { rows } = await client.query<CurrentUser>(
+        `select id,email,display_name as "displayName",is_admin as "isAdmin" from users where id=$1`,
+        [id],
+      );
+      if (!rows[0]) throw new Error('User removed during login');
+      return rows[0];
+    });
   }
 
   const { rows } = await pool.query<CurrentUser>(
